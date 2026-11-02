@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Hostel - Management Portal</title>
+    
+    <!-- PWA Manifest Link -->
+    <link rel="manifest" href="data:application/manifest+json;charset=utf-8,{
+        %22name%22: %22My Hostel Portal%22,
+        %22short_name%22: %22My Hostel%22,
+        %22start_url%22: %22./Index.html%22,
+        %22display%22: %22standalone%22,
+        %22background_color%22: %22#111827%22,
+        %22theme_color%22: %22#4f46e5%22,
+        %22icons%22: [
+            {
+                %22src%22: %22https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH%22,
+                %22sizes%22: %22512x512%22,
+                %22type%22: %22image/svg+xml%22
+            }
+        ]
+    }">
+
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --bg-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+            --card-bg: #ffffff;
+            --text-dark: #1f2937;
+            --text-light: #6b7280;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: var(--card-bg);
+            border-radius: 20px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            background: #111827;
+            color: white;
+            padding: 25px;
+            text-align: center;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+            background: linear-gradient(to right, #818cf8, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: #9ca3af;
+        }
+
+        .mh-badge-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: linear-gradient(135deg, #ec4899, #8b5cf6);
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.3);
+            transition: transform 0.2s ease;
+        }
+
+        .mh-badge-btn:hover {
+            transform: scale(1.08);
+        }
+
+        .user-badge-header {
+            display: none;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(5px);
+            padding: 6px 12px;
+            border-radius: 20px;
+            color: white;
+            font-size: 12px;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .switch-btn {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 3px 8px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .content-body {
+            padding: 30px;
+        }
+
+        #role-screen {
+            text-align: center;
+        }
+
+        .role-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 25px;
+        }
+
+        .role-card {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            padding: 30px 20px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .role-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.1);
+        }
+
+        .role-card h3 {
+            color: var(--text-dark);
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+
+        .role-card p {
+            color: var(--text-light);
+            font-size: 13px;
+        }
+
+        .form-screen {
+            display: none;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-dark);
+            font-size: 14px;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            width: 100%;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 15px;
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        #dashboard-screen {
+            display: none;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .dash-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid #f3f4f6;
+            transition: all 0.2s ease;
+        }
+
+        .dash-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .dash-card .icon {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .dash-card h4 {
+            font-size: 15px;
+            color: var(--text-dark);
+            margin-bottom: 5px;
+        }
+
+        .dash-card p {
+            font-size: 12px;
+            color: var(--text-light);
+        }
+
+        .logout-btn {
+            background: #ef4444;
+            margin-top: 25px;
+        }
+        .logout-btn:hover {
+            background: #dc2626;
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .modal-box {
+            background: white;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 650px;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 25px;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #f3f4f6;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            font-size: 18px;
+            font-weight: bold;
+            color: #4b5563;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-close:hover {
+            background: #ef4444;
+            color: white;
+        }
+
+        .item-card {
+            background: #f9fafb;
+            border-left: 4px solid var(--primary);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge-pending { background: #fef3c7; color: #d97706; }
+        .badge-resolved { background: #d1fae5; color: #059669; }
+        .badge-rejected { background: #fee2e2; color: #dc2626; }
+        .badge-paid { background: #d1fae5; color: #059669; }
+
+        .call-btn {
+            background: #10b981;
+            color: white;
+            text-decoration: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .tab-btn {
+            padding: 8px 16px;
+            border: none;
+            background: #e5e7eb;
+            color: #374151;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .dev-profile-container {
+            text-align: center;
+            padding: 10px;
+        }
+        .dev-avatar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid var(--primary);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+            margin-bottom: 15px;
+        }
+        .dev-info-box {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: left;
+            margin-top: 15px;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; border-radius: 0; max-width: 100%; }
+            .header, .modal-close, .btn, .switch-btn, .mh-badge-btn { display: none !important; }
+            .modal-overlay { position: static; background: white; padding: 0; display: block !important; }
+            .modal-box { max-height: none; box-shadow: none; padding: 0; }
+        }
+    </style>
+
+    <!-- Firebase Realtime Database SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, push, onValue, update, remove, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBUaUZvWZuOOhFGlfAmIC6Hdse0UcGvA3s",
+            authDomain: "my-hostel-38676.firebaseapp.com",
+            databaseURL: "https://my-hostel-38676-default-rtdb.firebaseio.com",
+            projectId: "my-hostel-38676",
+            storageBucket: "my-hostel-38676.firebasestorage.app",
+            messagingSenderId: "801290120317",
+            appId: "1:801290120317:web:18ef4d8e3f1b3debe1d514"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        window.db = db;
+        window.rtdbRef = ref;
+        window.rtdbSet = set;
+        window.rtdbPush = push;
+        window.rtdbOnValue = onValue;
+        window.rtdbUpdate = update;
+        window.rtdbRemove = remove;
+        window.rtdbGet = get;
+        window.rtdbChild = child;
+        
+        if(window.initAppAfterFirebase) window.initAppAfterFirebase();
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `self.addEventListener('fetch', function(event) {});`;
+                const blob = new Blob([swCode], { type: 'text/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl).catch(err => console.log('SW registration failed: ', err));
+            });
+        }
+    </script>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <div class="mh-badge-btn" onclick="openDeveloperProfile()">MH</div>
+            <h1>My Hostel</h1>
+            <p>New Version Hostel Management Portal</p>
+
+            <div id="header-user-badge" class="user-badge-header">
+                <span id="header-user-info">Logged in</span>
+                <button class="switch-btn" onclick="logoutSession()">Switch ID</button>
+            </div>
+        </div>
+
+        <div class="content-body">
+            <div id="role-screen">
+                <h3 style="margin-bottom: 10px; color: #374151;">Select Your Portal</h3>
+                <p style="color: #6b7280; font-size: 14px; margin-bottom: 20px;">Choose your account type to proceed.</p>
+                <div class="role-grid">
+                    <div class="role-card" onclick="showScreen('student-login')">
+                        <div style="font-size: 32px; margin-bottom: 10px;">👨‍🎓</div>
+                        <h3>Student Login</h3>
+                        <p>For hostel residents.</p>
+                    </div>
+                    <div class="role-card" onclick="showScreen('staff-login')">
+                        <div style="font-size: 32px; margin-bottom: 10px;">👨‍💼</div>
+                        <h3>Admin & Staff</h3>
+                        <p>For Wardens & Administration.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="student-login" class="form-screen">
+                <h3 style="margin-bottom: 15px; color: #374151;">Student Login</h3>
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="stu-name" placeholder="Enter full name">
+                </div>
+                <div class="form-group">
+                    <label>Contact Number</label>
+                    <input type="tel" id="stu-phone" placeholder="Enter mobile number">
+                </div>
+                <div class="form-group">
+                    <label>Select Floor</label>
+                    <select id="stu-floor" onchange="updateRooms('stu-floor', 'stu-room')">
+                        <option value="">-- Choose Floor --</option>
+                        <option value="ground">Ground Floor (101 - 135)</option>
+                        <option value="first">First Floor (201 - 235)</option>
+                        <option value="second">Second Floor (301 - 335)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Select Room Number</label>
+                    <select id="stu-room">
+                        <option value="">-- Choose Room --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Room Verification Code</label>
+                    <input type="password" id="stu-code" placeholder="Enter 4-digit room verification code">
+                </div>
+                <button class="btn" onclick="handleStudentLogin()">Login</button>
+                <br><a class="back-link" onclick="showScreen('role-screen')">&larr; Back</a>
+            </div>
+
+            <div id="staff-login" class="form-screen">
+                <h3 style="margin-bottom: 15px; color: #374151;">Staff Login</h3>
+                <div class="form-group">
+                    <label>Staff Name</label>
+                    <input type="text" id="staff-name" placeholder="Enter staff name">
+                </div>
+                <div class="form-group">
+                    <label>Contact Number</label>
+                    <input type="tel" id="staff-phone" placeholder="Mobile number">
+                </div>
+                <div class="form-group">
+                    <label>Position</label>
+                    <select id="staff-role">
+                        <option value="">-- Select Position --</option>
+                        <option value="Chief Warden">Chief Warden</option>
+                        <option value="Hostel Incharge">Hostel Incharge</option>
+                        <option value="Hostel Supervisor">Hostel Supervisor</option>
+                        <option value="Hostel Administrative">Hostel Administrative</option>
+                        <option value="Kitchen Mess Cook">Kitchen Mess Cook</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Staff Secret Code</label>
+                    <input type="password" id="staff-code" placeholder="Enter 7-digit secret security code">
+                </div>
+                <button class="btn" onclick="handleStaffLogin()">Login</button>
+                <br><a class="back-link" onclick="showScreen('role-screen')">&larr; Back</a>
+            </div>
+
+            <div id="dashboard-screen" class="form-screen">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div>
+                        <h3 id="user-display-name">Welcome!</h3>
+                        <p id="user-display-role" style="color: var(--text-light); font-size: 13px;">Role: Resident</p>
+                    </div>
+                    <span id="user-tag" style="background: #e0e7ff; color: #4f46e5; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold;">Room: --</span>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="dash-card" onclick="openModule('notice')"><div class="icon">📢</div><h4>Notice Board</h4><p>Announcements</p></div>
+                    <div class="dash-card" onclick="openModule('mess')"><div class="icon">🍽️</div><h4>Mess Menu</h4><p>Meals & Attendance</p></div>
+                    <div class="dash-card" onclick="openModule('complaint')"><div class="icon">🛠️</div><h4>Complaint Box</h4><p>Issues</p></div>
+                    <div class="dash-card" onclick="openModule('rules')"><div class="icon">📋</div><h4>Hostel Rules</h4><p>Guidelines</p></div>
+                    <div class="dash-card" onclick="openModule('staff')"><div class="icon">👥</div><h4>Staff Directory</h4><p>Contacts</p></div>
+                    <div class="dash-card" onclick="openModule('allocation')"><div class="icon">🚪</div><h4>Room Allocation</h4><p>Roommates</p></div>
+                    <div class="dash-card" onclick="openModule('fee')"><div class="icon">💰</div><h4>Fee & Payments</h4><p>Dues</p></div>
+                    <div class="dash-card" onclick="openModule('outpass')"><div class="icon">📝</div><h4>Out-Pass / Leave</h4><p>Leave Application</p></div>
+                </div>
+
+                <button class="btn logout-btn" onclick="logoutSession()">Logout / Switch Account</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay" onclick="handleBackdropClick(event)">
+        <div class="modal-box">
+            <button class="modal-close" onclick="closeModal()">✕</button>
+            <div id="modal-content"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let activeMealTab = "Lunch";
+
+        let notices = [];
+        let complaints = [];
+        let outPasses = [];
+        let feeRecords = {};
+        let roomAllocations = [];
+        let staffMembers = [];
+        let hostelRules = [];
+        let messAttendance = {};
+        let messSchedule = {
+            Lunch: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" },
+            Dinner: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" }
+        };
+
+        const staffCodes = {
+            "Chief Warden": "7854123",
+            "Hostel Incharge": "6541230",
+            "Hostel Supervisor": "9874561",
+            "Hostel Administrative": "4561239",
+            "Kitchen Mess Cook": "3214567"
+        };
+
+        window.initAppAfterFirebase = function() {
+            startRTDBListeners();
+            
+            const savedUser = localStorage.getItem('myhostel_active_user');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                setupUserUI();
+                showScreen('dashboard-screen');
+            }
+        };
+
+        function startRTDBListeners() {
+            // Notices Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "notices"), (snapshot) => {
+                const data = snapshot.val();
+                notices = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                refreshActiveModule('Notice Board');
+            });
+
+            // Complaints Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "complaints"), (snapshot) => {
+                const data = snapshot.val();
+                complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                cleanupExpiredComplaints();
+                refreshActiveModule('Complaint Box');
+            });
+
+            // Outpasses Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "outpasses"), (snapshot) => {
+                const data = snapshot.val();
+                outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                refreshActiveModule('Out-Pass');
+            });
+
+            // Allocations Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "allocations"), (snapshot) => {
+                const data = snapshot.val();
+                roomAllocations = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                refreshActiveModule('Room Allocation');
+            });
+
+            // Rules Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "rules"), (snapshot) => {
+                const data = snapshot.val();
+                if(data) {
+                    hostelRules = Object.keys(data).map(key => ({ firebaseId: key, ...data[key] }));
+                } else {
+                    initializeDefaultRules();
+                }
+                refreshActiveModule('Hostel Rules');
+            });
+
+            // Staff Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "staff"), (snapshot) => {
+                const data = snapshot.val();
+                if(data) {
+                    staffMembers = Object.keys(data).map(key => ({ firebaseId: key, ...data[key] }));
+                } else {
+                    initializeDefaultStaff();
+                }
+                refreshActiveModule('Staff Directory');
+            });
+
+            // Fees Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "fees"), (snapshot) => {
+                feeRecords = snapshot.val() || {};
+                refreshActiveModule('Fee & Payments');
+            });
+
+            // Mess Menu Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "settings/messMenu"), (snapshot) => {
+                const data = snapshot.val();
+                if(data) {
+                    messSchedule = data;
+                } else {
+                    initializeDefaultMess();
+                }
+                refreshActiveModule('Mess Menu');
+            });
+
+            // Mess Attendance Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "mess_attendance"), (snapshot) => {
+                messAttendance = snapshot.val() || {};
+                refreshActiveModule('Mess Menu');
+            });
+        }
+
+        function refreshActiveModule(moduleTitleKeyword) {
+            if(document.getElementById('modal-overlay').style.display === 'flex') {
+                let activeTitle = document.querySelector('#modal-content h2');
+                if(activeTitle && activeTitle.innerText.includes(moduleTitleKeyword)) {
+                    if(moduleTitleKeyword === 'Notice Board') openModule('notice');
+                    if(moduleTitleKeyword === 'Complaint Box') openModule('complaint');
+                    if(moduleTitleKeyword === 'Out-Pass') openModule('outpass');
+                    if(moduleTitleKeyword === 'Room Allocation') openModule('allocation');
+                    if(moduleTitleKeyword === 'Hostel Rules') openModule('rules');
+                    if(moduleTitleKeyword === 'Staff Directory') openModule('staff');
+                    if(moduleTitleKeyword === 'Fee & Payments') openModule('fee');
+                    if(moduleTitleKeyword === 'Mess Menu') openModule('mess');
+                }
+            }
+        }
+
+        async function initializeDefaultRules() {
+            const defaults = [
+                { id: 1, title: "Gate Closing Time", content: "Gate entry closing time is 9:00 PM sharp for all residents." },
+                { id: 2, title: "Cleanliness", content: "Keep your rooms and corridors clean. Dustbins must be used properly." },
+                { id: 3, title: "Guests Policy", content: "Unauthorized guests are strictly prohibited inside the residential rooms." },
+                { id: 4, title: "Electricity Conservation", content: "Switch off lights and fans when leaving the room to save electricity." }
+            ];
+            for(let r of defaults) { 
+                const newRef = window.rtdbPush(window.rtdbRef(window.db, "rules"));
+                await window.rtdbSet(newRef, r);
+            }
+        }
+
+        async function initializeDefaultStaff() {
+            const defaults = [
+                { id: 1, role: "Chief Warden", name: "Dr. Rajesh Kumar", phone: "9876543210" },
+                { id: 2, role: "Hostel Incharge", name: "Mr. Anil Sharma", phone: "9123456789" },
+                { id: 3, role: "Hostel Supervisor", name: "Mr. Manoj Das", phone: "9938123456" },
+                { id: 4, role: "Hostel Administrative", name: "Office Desk", phone: "0672422001" },
+                { id: 5, role: "Kitchen Mess Cook", name: "Chef Suresh", phone: "9861234567" }
+            ];
+            for(let s of defaults) { 
+                const newRef = window.rtdbPush(window.rtdbRef(window.db, "staff"));
+                await window.rtdbSet(newRef, s);
+            }
+        }
+
+        async function initializeDefaultMess() {
+            const defaultMess = {
+                Lunch: {
+                    Monday: "Rice, Dal Fry, Seasonal Veg, Salad & Papad",
+                    Tuesday: "Jeera Rice, Chana Masala, Mixed Veg & Curd",
+                    Wednesday: "Egg Curry / Paneer Special, Rice, Dal & Salad",
+                    Thursday: "Veg Pulao, Dal Makhani, Aloo Gobi & Sweets",
+                    Friday: "Fish Curry / Soyabean, Rice, Dal & Curd",
+                    Saturday: "Khichdi, Chokha, Papad, Pickle & Curd",
+                    Sunday: "Special Veg Biryani / Chicken Curry, Rice & Salad"
+                },
+                Dinner: {
+                    Monday: "Roti, Dal Tadka, Aloo Bhujia & Milk",
+                    Tuesday: "Roti, Mix Veg Curry, Kheer & Sevai",
+                    Wednesday: "Chicken Curry / Paneer Butter Masala, Roti & Rice",
+                    Thursday: "Poori, Aloo Dum, Halwa & Milk",
+                    Friday: "Roti, Egg Bhurji / Paneer Kadai & Dal",
+                    Saturday: "Roti, Chana Dal, Aloo Paratha & Milk",
+                    Sunday: "Egg Curry / Mushroom Curry, Roti & Sweets"
+                }
+            };
+            await window.rtdbSet(window.rtdbRef(window.db, "settings/messMenu"), defaultMess);
+        }
+
+        function cleanupExpiredComplaints() {
+            const now = Date.now();
+            const twentyFourHours = 24 * 60 * 60 * 1000;
+            complaints.forEach(async c => {
+                if (c.status === 'Resolved' && c.resolvedAt && (now - c.resolvedAt) >= twentyFourHours) {
+                    await window.rtdbRemove(window.rtdbRef(window.db, `complaints/${c.firebaseId}`));
+                }
+            });
+        }
+
+        function setupUserUI() {
+            document.getElementById('header-user-badge').style.display = 'flex';
+            if (currentUser.role === 'student') {
+                document.getElementById('header-user-info').innerText = `${currentUser.name} (Rm: ${currentUser.room})`;
+                document.getElementById('user-display-name').innerText = currentUser.name;
+                document.getElementById('user-display-role').innerText = "Student Resident";
+                document.getElementById('user-tag').innerText = "Room: " + currentUser.room;
+            } else {
+                document.getElementById('header-user-info').innerText = `${currentUser.name} (${currentUser.position})`;
+                document.getElementById('user-display-name').innerText = currentUser.name;
+                document.getElementById('user-display-role').innerText = "Staff: " + currentUser.position;
+                document.getElementById('user-tag').innerText = "Admin Access";
+            }
+        }
+
+        function showScreen(screenId) {
+            document.getElementById('role-screen').style.display = 'none';
+            document.getElementById('student-login').style.display = 'none';
+            document.getElementById('staff-login').style.display = 'none';
+            document.getElementById('dashboard-screen').style.display = 'none';
+            document.getElementById(screenId).style.display = 'block';
+        }
+
+        function updateRooms(floorId, roomId) {
+            const floor = document.getElementById(floorId).value;
+            const roomSelect = document.getElementById(roomId);
+            roomSelect.innerHTML = '<option value="">-- Choose Room --</option>';
+            let start = 0, end = 0;
+            if (floor === 'ground') { start = 101; end = 135; }
+            else if (floor === 'first') { start = 201; end = 235; }
+            else if (floor === 'second') { start = 301; end = 335; }
+
+            if (start && end) {
+                for (let i = start; i <= end; i++) {
+                    let opt = document.createElement('option');
+                    opt.value = i;
+                    opt.textContent = 'Room No: ' + i;
+                    roomSelect.appendChild(opt);
+                }
+            }
+        }
+
+        function handleStudentLogin() {
+            const name = document.getElementById('stu-name').value.trim();
+            const phone = document.getElementById('stu-phone').value.trim();
+            const room = document.getElementById('stu-room').value;
+            const code = document.getElementById('stu-code').value.trim();
+
+            if (!name || !phone || !room || !code) return alert("Please fill all details.");
+            if (code !== room + "0") return alert("Invalid room verification code!");
+
+            currentUser = { role: 'student', name: name, phone: phone, room: room };
+            localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser));
+            setupUserUI();
+            showScreen('dashboard-screen');
+        }
+
+        function handleStaffLogin() {
+            const name = document.getElementById('staff-name').value.trim();
+            const phone = document.getElementById('staff-phone').value.trim();
+            const role = document.getElementById('staff-role').value;
+            const code = document.getElementById('staff-code').value.trim();
+
+            if (!name || !phone || !role || !code) return alert("Please fill all staff credentials.");
+            if (staffCodes[role] && code !== staffCodes[role]) {
+                return alert("Incorrect 7-digit secure code for " + role + "!");
+            }
+
+            currentUser = { role: 'staff', position: role, name: name, phone: phone };
+            localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser));
+            setupUserUI();
+            showScreen('dashboard-screen');
+        }
+
+        function logoutSession() {
+            localStorage.removeItem('myhostel_active_user');
+            currentUser = null;
+            document.getElementById('header-user-badge').style.display = 'none';
+            showScreen('role-screen');
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').style.display = 'none';
+        }
+
+        function handleBackdropClick(e) {
+            if (e.target.id === 'modal-overlay') closeModal();
+        }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+        function openDeveloperProfile() {
+            const content = document.getElementById('modal-content');
+            document.getElementById('modal-overlay').style.display = 'flex';
+            
+            content.innerHTML = `
+                <div class="dev-profile-container">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Piyush" alt="Piyush Kumar Sahoo" class="dev-avatar">
+                    <h2 style="color:var(--primary);">Piyush Kumar Sahoo</h2>
+                    <p style="color:#6b7280; font-weight:bold;">Lead Developer & Creator</p>
+                    
+                    <div class="dev-info-box">
+                        <p><strong>🎓 Education:</strong> Plus Three (+3) Student</p>
+                        <p style="margin-top:6px;"><strong>🏫 College:</strong> NC Autonomous College</p>
+                        <p style="margin-top:6px;"><strong>💻 Project:</strong> My Hostel Management Portal</p>
+                        <p style="margin-top:6px; font-size:12px; color:#4b5563;">Designed and developed by Piyush Kumar Sahoo to streamline hostel operations, cloud storage, and mess attendance.</p>
+                    </div>
+
+                    <p style="margin-top:15px; font-size:11px; color:#9ca3af;">Developer Profile • Read Only Access</p>
+                </div>`;
+        }
+
+        function openModule(moduleKey) {
+            const content = document.getElementById('modal-content');
+            document.getElementById('modal-overlay').style.display = 'flex';
+
+            if (moduleKey === 'notice') {
+                let canEdit = currentUser.role === 'staff' && currentUser.position !== 'Kitchen Mess Cook';
+                let html = `<h2>📢 Notice Board</h2><hr style="margin: 10px 0;">`;
+                if (canEdit) {
+                    html += `
+                        <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <h4>Add New Notice</h4>
+                            <input type="text" id="nt-title" placeholder="Notice Title" style="width:100%; margin: 8px 0; padding: 8px;">
+                            <textarea id="nt-body" placeholder="Notice Description" style="width:100%; margin-bottom: 8px; padding: 8px;"></textarea>
+                            <button class="btn" onclick="addNotice()">Post Notice</button>
+                        </div>`;
+                }
+                notices.forEach(n => {
+                    html += `
+                        <div class="item-card">
+                            <h4 style="color:var(--primary);">${n.title}</h4>
+                            <small style="color:#6b7280;">Date: ${n.date}</small>
+                            <p style="margin-top:5px;">${n.content}</p>
+                            ${canEdit ? `<button onclick="deleteNotice('${n.firebaseId}')" style="color:red; background:none; border:none; cursor:pointer; margin-top:8px;">🗑️ Delete</button>` : ''}
+                        </div>`;
+                });
+                content.innerHTML = html;
+            }
+            else if (moduleKey === 'mess') renderMessMenu();
+            else if (moduleKey === 'complaint') renderComplaintBox();
+            else if (moduleKey === 'rules') renderHostelRules();
+            else if (moduleKey === 'staff') renderStaffDirectory();
+            else if (moduleKey === 'allocation') renderRoomAllocation();
+            else if (moduleKey === 'fee') renderFeePayments();
+            else if (moduleKey === 'outpass') renderOutPass();
+        }
+
+        function renderMessMenu() {
+            const content = document.getElementById('modal-content');
+            let isStaff = currentUser.role === 'staff';
+            
+            let now = new Date();
+            let currentHour = now.getHours();
+            let isOptInWindowOpen = currentHour >= 18 || currentHour < 6;
+
+            let targetDate = new Date();
+            if (currentHour >= 18) {
+                targetDate.setDate(targetDate.getDate() + 1);
+            }
+            let targetDayName = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
+            let isChoiceDay = ["Wednesday", "Friday", "Sunday"].includes(targetDayName);
+
+            let html = `
+                <h2>🍽️ Mess Menu & Daily Attendance</h2><hr style="margin: 10px 0;">
+                
+                <div style="display:flex; gap:10px; margin-bottom:15px;">
+                    <button class="tab-btn ${activeMealTab === 'Lunch' ? 'active' : ''}" onclick="switchMealTab('Lunch')">☀️ Lunch (12:30 PM - 2:00 PM)</button>
+                    <button class="tab-btn ${activeMealTab === 'Dinner' ? 'active' : ''}" onclick="switchMealTab('Dinner')">🌙 Dinner (8:00 PM - 9:30 PM)</button>
+                </div>`;
+
+            if (currentUser.role === 'student') {
+                let docId = `${currentUser.room}_${currentUser.name.replace(/\s+/g, '')}`;
+                let currentAtt = messAttendance[docId] || { eat: 'Yes', type: 'Veg' };
+
+                let headerTitle = isOptInWindowOpen ? `Tomorrow's Meal Opt-In (${targetDayName})` : `Today's Meal Opt-In (${targetDayName})`;
+
+                html += `
+                    <div style="background: ${isOptInWindowOpen ? '#d1fae5' : '#fee2e2'}; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h4>🍱 ${headerTitle}</h4>
+                            <span class="badge ${isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${isOptInWindowOpen ? '🟢 WINDOW OPEN (6PM - 6AM)' : '🔒 LOCKED (AFTER 6 AM)'}</span>
+                        </div>
+                        <p style="font-size:12px; color:#4b5563; margin-top:4px;">Set whether you will eat in the mess for this meal.</p>
+
+                        <div style="margin-top:12px; display:flex; gap:15px; align-items:center;">
+                            <label style="font-weight:bold;">Will you eat?</label>
+                            <select id="opt-eat" ${!isOptInWindowOpen ? 'disabled' : ''} style="padding:6px; border-radius:6px;">
+                                <option value="Yes" ${currentAtt.eat === 'Yes' ? 'selected' : ''}>Yes, I will eat</option>
+                                <option value="No" ${currentAtt.eat === 'No' ? 'selected' : ''}>No, Skip Meal</option>
+                            </select>
+                        </div>
+
+                        ${isChoiceDay ? `
+                            <div style="margin-top:10px; display:flex; gap:15px; align-items:center;">
+                                <label style="font-weight:bold;">Select Preference:</label>
+                                <label><input type="radio" name="opt-type" value="Veg" ${currentAtt.type === 'Veg' ? 'checked' : ''} ${!isOptInWindowOpen ? 'disabled' : ''}> 🥦 Veg</label>
+                                <label><input type="radio" name="opt-type" value="NonVeg" ${currentAtt.type === 'NonVeg' ? 'checked' : ''} ${!isOptInWindowOpen ? 'disabled' : ''}> 🍗 Non-Veg</label>
+                            </div>
+                        ` : ''}
+
+                        ${isOptInWindowOpen ? `<button class="btn" style="margin-top:12px; padding:8px;" onclick="saveStudentAttendance('${docId}')">Save Meal Choice</button>` : ''}
+                    </div>`;
+            }
+
+            if (isStaff) {
+                let totalOpted = 0, totalVeg = 0, totalNonVeg = 0;
+                Object.values(messAttendance).forEach(a => {
+                    if (a.eat === 'Yes') {
+                        totalOpted++;
+                        if (a.type === 'NonVeg') totalNonVeg++; else totalVeg++;
+                    }
+                });
+
+                html += `
+                    <div style="background: #e0e7ff; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h4>📊 Kitchen Live Count Summary</h4>
+                            <div>
+                                <button onclick="window.print()" style="background:#4f46e5; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">🖨️ Print List</button>
+                                <button onclick="shareWhatsAppSummary(${totalOpted}, ${totalVeg}, ${totalNonVeg})" style="background:#10b981; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">📲 WhatsApp</button>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:15px; margin-top:10px; font-weight:bold; font-size:14px;">
+                            <span>Total Eating: ${totalOpted}</span> |
+                            <span style="color:#059669;">🥦 Veg: ${totalVeg}</span> |
+                            <span style="color:#dc2626;">🍗 Non-Veg: ${totalNonVeg}</span>
+                        </div>
+                    </div>
+
+                    <h4>📋 Sorted Attendance List (Room-wise)</h4>
+                    <div style="margin-top:10px;">`;
+
+                let sortedKeys = Object.keys(messAttendance).sort((a,b) => {
+                    let rA = parseInt(messAttendance[a].room) || 0;
+                    let rB = parseInt(messAttendance[b].room) || 0;
+                    return rA - rB;
+                });
+
+                if (sortedKeys.length === 0) {
+                    html += `<p style="color:#6b7280; font-size:13px;">No attendance records submitted yet.</p>`;
+                } else {
+                    sortedKeys.forEach(k => {
+                        let item = messAttendance[k];
+                        html += `
+                            <div class="item-card" style="border-left-color:${item.eat === 'Yes' ? '#10b981' : '#ef4444'};">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong>Room ${item.room} - ${item.name}</strong>
+                                    <span class="badge ${item.eat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${item.eat} (${item.type || 'Veg'})</span>
+                                </div>
+                            </div>`;
+                    });
+                }
+                html += `</div><hr style="margin:20px 0;">`;
+            }
+
+            html += `<h4>Weekly Schedule</h4><div style="margin-top:10px;">`;
+            let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+            days.forEach(day => {
+                let menuText = messSchedule[activeMealTab] ? (messSchedule[activeMealTab][day] || "") : "";
+                html += `
+                    <div class="item-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <strong>📅 ${day} (${activeMealTab})</strong>
+                            ${isStaff ? `<button onclick="editMessMenu('${activeMealTab}', '${day}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>` : ''}
+                        </div>
+                        <p style="margin-top:6px; color:#374151;">${menuText}</p>
+                    </div>`;
+            });
+            html += `</div>`;
+            content.innerHTML = html;
+        }
+
+        async function saveStudentAttendance(docId) {
+            const eat = document.getElementById('opt-eat').value;
+            const typeRadio = document.querySelector('input[name="opt-type"]:checked');
+            const typeVal = typeRadio ? typeRadio.value : 'Veg';
+
+            await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${docId}`), {
+                room: currentUser.room,
+                name: currentUser.name,
+                eat: eat,
+                type: typeVal,
+                updatedAt: Date.now()
+            });
+            alert("Your meal preference has been saved!");
+            renderMessMenu();
+        }
+
+        function switchMealTab(mealType) {
+            activeMealTab = mealType;
+            renderMessMenu();
+        }
+
+        async function editMessMenu(mealType, day) {
+            let currentText = messSchedule[mealType][day];
+            let newText = prompt(`Edit ${mealType} Menu for ${day}:`, currentText);
+            if (newText !== null && newText.trim() !== "") {
+                messSchedule[mealType][day] = newText.trim();
+                await window.rtdbSet(window.rtdbRef(window.db, "settings/messMenu"), messSchedule);
+                renderMessMenu();
+            }
+        }
+
+        function shareWhatsAppSummary(total, veg, nonveg) {
+            let text = `*My Hostel - Attendance Summary*%0A` +
+                        `-----------------------------------%0A` +
+                        `🍱 *Total Meal Count:* ${total}%0A` +
+                        `🥦 *Veg Count:* ${veg}%0A` +
+                        `🍗 *Non-Veg Count:* ${nonveg}%0A` +
+                        `-----------------------------------%0A` +
+                        `_Generated by My Hostel Management Portal_`;
+            window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+        }
+
+        function renderComplaintBox() {
+            const content = document.getElementById('modal-content');
+            let html = `<h2>🛠️ Complaint Box</h2><hr style="margin: 10px 0;">`;
+            
+            if (currentUser.role === 'student') {
+                html += `
+                    <div style="background: #fee2e2; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4>Submit Complaint (Room ${currentUser.room})</h4>
+                        <textarea id="cmp-text" placeholder="Describe the issue in your room..." style="width:100%; margin:8px 0; padding:8px;"></textarea>
+                        <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:5px;">Attach Photo (Optional):</label>
+                        <input type="file" id="cmp-img" accept="image/*" capture="environment" style="margin-bottom:10px;">
+                        <button class="btn" id="cmp-sub-btn" onclick="submitComplaintWithStorage()">Submit Complaint</button>
+                    </div>`;
+            }
+
+            let list = currentUser.role === 'student' ? complaints.filter(c => c.room === currentUser.room) : complaints;
+
+            if (list.length === 0) {
+                html += `<p style="color:#6b7280; font-size:13px;">No active complaints found.</p>`;
+            } else {
+                list.forEach(c => {
+                    let isResolved = c.status === 'Resolved';
+                    let remainingHours = "";
+                    if (isResolved && c.resolvedAt) {
+                        let elapsedMs = Date.now() - c.resolvedAt;
+                        let leftMs = (24 * 60 * 60 * 1000) - elapsedMs;
+                        let leftHours = Math.max(0, Math.floor(leftMs / (1000 * 60 * 60)));
+                        remainingHours = `(Auto-deletes in ${leftHours}h)`;
+                    }
+
+                    html += `
+                        <div class="item-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong>Room ${c.room} - ${c.name}</strong>
+                                <span class="badge ${isResolved ? 'badge-resolved' : 'badge-pending'}">${c.status} ${remainingHours}</span>
+                            </div>
+                            <p style="margin: 8px 0;">${c.text}</p>
+                            ${c.image ? `<img src="${c.image}" style="width:100%; max-height:150px; object-fit:cover; border-radius:8px; margin-top:5px;" onclick="enlargeImage('${c.image}')">` : ''}
+                            
+                            <div style="margin-top:10px; display:flex; gap:10px;">
+                                ${currentUser.role === 'staff' && !isResolved ? `<button class="btn" style="padding:6px; background:#10b981;" onclick="resolveComplaint('${c.firebaseId}')">Mark Resolved</button>` : ''}
+                                ${currentUser.role === 'student' && isResolved ? `<button class="btn" style="padding:6px; background:#3b82f6;" onclick="resendComplaint('${c.firebaseId}')">🔄 Resend Complaint</button>` : ''}
+                            </div>
+                        </div>`;
+                });
+            }
+            content.innerHTML = html;
+        }
+
+        // Base64 image conversion for Realtime Database storage without paid Cloud Storage plans
+        async function submitComplaintWithStorage() {
+            const text = document.getElementById('cmp-text').value.trim();
+            const fileInput = document.getElementById('cmp-img');
+            if (!text) return alert("Please enter complaint details.");
+
+            const btn = document.getElementById('cmp-sub-btn');
+            btn.innerText = "Submitting Complaint...";
+            btn.disabled = true;
+
+            try {
+                let imageBase64 = null;
+                if (fileInput.files && fileInput.files[0]) {
+                    const file = fileInput.files[0];
+                    imageBase64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(file);
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = error => reject(error);
+                    });
+                }
+
+                const newRef = window.rtdbPush(window.rtdbRef(window.db, "complaints"));
+                await window.rtdbSet(newRef, {
+                    room: currentUser.room,
+                    name: currentUser.name,
+                    text: text,
+                    status: "Pending",
+                    image: imageBase64,
+                    resolvedAt: null,
+                    createdAt: Date.now()
+                });
+
+                alert("Complaint submitted successfully!");
+                renderComplaintBox();
+            } catch (err) {
+                console.error(err);
+                alert("Error submitting complaint: " + err.message);
+                btn.innerText = "Submit Complaint";
+                btn.disabled = false;
+            }
+        }
+
+        async function resolveComplaint(firebaseId) {
+            await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${firebaseId}`), { status: "Resolved", resolvedAt: Date.now() });
+        }
+
+        async function resendComplaint(firebaseId) {
+            await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${firebaseId}`), { status: "Pending", resolvedAt: null });
+            alert("Complaint has been resent to staff!");
+        }
+
+        function renderHostelRules() {
+            const content = document.getElementById('modal-content');
+            let isStaff = currentUser.role === 'staff';
+            let html = `<h2>📋 Hostel Rules & Guidelines</h2><hr style="margin: 10px 0;">`;
+
+            if (isStaff) {
+                html += `
+                    <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4>Add New Hostel Rule</h4>
+                        <input type="text" id="rule-title" placeholder="Rule Title (e.g. Visitors Timing)" style="width:100%; margin: 8px 0; padding: 8px;">
+                        <textarea id="rule-content" placeholder="Rule details..." style="width:100%; margin-bottom: 8px; padding: 8px;"></textarea>
+                        <button class="btn" onclick="addHostelRule()">Add Rule</button>
+                    </div>`;
+            }
+
+            if (hostelRules.length === 0) {
+                html += `<p style="color:#6b7280; font-size:13px;">No rules found.</p>`;
+            } else {
+                hostelRules.forEach((r, idx) => {
+                    html += `
+                        <div class="item-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong style="color:var(--primary);">${idx + 1}. ${r.title}</strong>
+                                ${isStaff ? `
+                                    <div>
+                                        <button onclick="editHostelRule('${r.firebaseId}', '${r.title.replace(/'/g, "\\'")}', '${r.content.replace(/'/g, "\\'")}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
+                                        <button onclick="deleteHostelRule('${r.firebaseId}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <p style="margin-top:6px; color:#374151;">${r.content}</p>
+                        </div>`;
+                });
+            }
+            content.innerHTML = html;
+        }
+
+        async function addHostelRule() {
+            const title = document.getElementById('rule-title').value.trim();
+            const content = document.getElementById('rule-content').value.trim();
+            if (!title || !content) return alert("Please enter both rule title and content.");
+
+            const newRef = window.rtdbPush(window.rtdbRef(window.db, "rules"));
+            await window.rtdbSet(newRef, { title: title, content: content, id: Date.now() });
+            renderHostelRules();
+        }
+
+        async function editHostelRule(firebaseId, curTitle, curContent) {
+            let newTitle = prompt("Edit Rule Title:", curTitle);
+            let newContent = prompt("Edit Rule Description:", curContent);
+            if (newTitle !== null && newContent !== null) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `rules/${firebaseId}`), {
+                    title: newTitle.trim(), content: newContent.trim()
+                });
+            }
+        }
+
+        async function deleteHostelRule(firebaseId) {
+            if (confirm("Are you sure you want to delete this rule?")) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `rules/${firebaseId}`));
+            }
+        }
+
+        function renderRoomAllocation() {
+            const content = document.getElementById('modal-content');
+            let isStaff = currentUser.role === 'staff';
+            let html = `<h2>🚪 Room Allocation Dashboard</h2><hr style="margin: 10px 0;">`;
+
+            if (isStaff) {
+                html += `
+                    <div style="background:#e0e7ff; padding:15px; border-radius:8px; margin-bottom:15px;">
+                        <h4>Manage Room Allocation</h4>
+                        <label style="font-size:12px; font-weight:bold; margin-top:6px; display:block;">Select Floor:</label>
+                        <select id="alloc-floor" onchange="updateRooms('alloc-floor', 'alloc-room')" style="width:100%; margin:4px 0; padding:8px;">
+                            <option value="">-- Choose Floor --</option>
+                            <option value="ground">Ground Floor (101 - 135)</option>
+                            <option value="first">First Floor (201 - 235)</option>
+                            <option value="second">Second Floor (301 - 335)</option>
+                        </select>
+                        <label style="font-size:12px; font-weight:bold; display:block;">Select Room:</label>
+                        <select id="alloc-room" style="width:100%; margin:4px 0; padding:8px;"><option value="">-- Choose Room --</option></select>
+                        <input type="text" id="alloc-stu1" placeholder="Student 1 Name" style="width:100%; margin:4px 0; padding:8px;">
+                        <input type="text" id="alloc-stu2" placeholder="Student 2 Name (or Vacant)" style="width:100%; margin:4px 0; padding:8px;">
+                        <button class="btn" style="margin-top:8px;" onclick="saveRoomAllocation()">Save Allocation</button>
+                    </div>`;
+            }
+
+            html += `<h4>Allocated Rooms List</h4><div style="margin-top:10px;">`;
+            roomAllocations.forEach((ra) => {
+                html += `
+                    <div class="item-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <strong>Room ${ra.room} (${ra.status})</strong>
+                            ${isStaff ? `
+                                <div>
+                                    <button onclick="editAllocation('${ra.firebaseId}', '${ra.student1}', '${ra.student2}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
+                                    <button onclick="deleteAllocation('${ra.firebaseId}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <p style="margin-top:6px; font-size:13px;">👤 <strong>Student 1:</strong> ${ra.student1} | 👤 <strong>Student 2:</strong> ${ra.student2}</p>
+                    </div>`;
+            });
+            html += `</div>`;
+            content.innerHTML = html;
+        }
+
+        async function saveRoomAllocation() {
+            const rm = document.getElementById('alloc-room').value;
+            const s1 = document.getElementById('alloc-stu1').value.trim();
+            const s2 = document.getElementById('alloc-stu2').value.trim() || "Vacant";
+
+            if (!rm || !s1) return alert("Please choose a room and enter student name!");
+
+            let statusVal = (s2 && s2 !== "Vacant") ? "Fully Occupied" : "Partially Occupied";
+            let existing = roomAllocations.find(r => r.room === rm);
+
+            if (existing) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${existing.firebaseId}`), {
+                    student1: s1, student2: s2, status: statusVal
+                });
+            } else {
+                const newRef = window.rtdbPush(window.rtdbRef(window.db, "allocations"));
+                await window.rtdbSet(newRef, {
+                    room: rm, student1: s1, student2: s2, status: statusVal
+                });
+            }
+            renderRoomAllocation();
+        }
+
+        async function editAllocation(firebaseId, curS1, curS2) {
+            let n1 = prompt("Edit Student 1 Name:", curS1);
+            let n2 = prompt("Edit Student 2 Name:", curS2);
+            if (n1 !== null) {
+                let statusVal = (n2 && n2.trim() && n2.trim() !== "Vacant") ? "Fully Occupied" : "Partially Occupied";
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${firebaseId}`), {
+                    student1: n1.trim(), student2: (n2 && n2.trim()) ? n2.trim() : "Vacant", status: statusVal
+                });
+            }
+        }
+
+        async function deleteAllocation(firebaseId) {
+            if (confirm("Are you sure you want to delete this room allocation?")) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${firebaseId}`));
+            }
+        }
+
+        function renderFeePayments() {
+            const content = document.getElementById('modal-content');
+            let html = `<h2>💰 Fee & Payments</h2><hr style="margin: 10px 0;">`;
+            if (currentUser.role === 'student') {
+                let myFee = feeRecords[currentUser.room] || { name: currentUser.name, status: "Pending", annualFee: "₹45,000", messDues: "₹1,200" };
+                html += `
+                    <div class="item-card" style="border-left-color: #10b981;">
+                        <h3>Private Record: Room ${currentUser.room}</h3>
+                        <p style="margin-top:8px;"><strong>Student Name:</strong> ${myFee.name || currentUser.name}</p>
+                        <p><strong>Annual Fee:</strong> ${myFee.annualFee}</p>
+                        <p><strong>Mess Dues:</strong> ${myFee.messDues}</p>
+                        <p style="margin-top:8px;"><strong>Payment Status:</strong> <span class="badge ${myFee.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${myFee.status}</span></p>
+                    </div>`;
+            } else {
+                html += `
+                    <div style="background:#f3f4f6; padding:15px; border-radius:8px; margin-bottom:15px;">
+                        <h4 id="form-title">Manage Student Fee Record</h4>
+                        <label style="font-size:12px; font-weight:bold; margin-top:8px; display:block;">Select Floor:</label>
+                        <select id="staff-fee-floor" onchange="updateRooms('staff-fee-floor', 'staff-fee-room')" style="width:100%; margin:6px 0; padding:8px;">
+                            <option value="">-- Select Floor --</option>
+                            <option value="ground">Ground Floor (101 - 135)</option>
+                            <option value="first">First Floor (201 - 235)</option>
+                            <option value="second">Second Floor (301 - 335)</option>
+                        </select>
+                        <label style="font-size:12px; font-weight:bold; display:block;">Select Room Number:</label>
+                        <select id="staff-fee-room" style="width:100%; margin:6px 0; padding:8px;"><option value="">-- Choose Floor First --</option></select>
+                        <label style="font-size:12px; font-weight:bold; display:block;">Student Name:</label>
+                        <input type="text" id="staff-stu-name" placeholder="Enter student name" style="width:100%; margin:6px 0; padding:8px;">
+                        <label style="font-size:12px; font-weight:bold; display:block;">Annual Fee:</label>
+                        <input type="text" id="staff-annual-fee" value="₹45,000" style="width:100%; margin:6px 0; padding:8px;">
+                        <label style="font-size:12px; font-weight:bold; display:block;">Mess Dues:</label>
+                        <input type="text" id="staff-mess-dues" placeholder="e.g. ₹0 or ₹2,500" style="width:100%; margin:6px 0; padding:8px;">
+                        <label style="font-size:12px; font-weight:bold; display:block;">Payment Status:</label>
+                        <select id="staff-fee-status" style="width:100%; margin:6px 0; padding:8px;">
+                            <option value="Paid">Paid</option>
+                            <option value="Pending">Pending</option>
+                        </select>
+                        <button class="btn" style="margin-top:10px;" onclick="saveFeeRecord()">Save Fee Record</button>
+                    </div>
+
+                    <h4>All Registered Fee Records</h4><div style="margin-top:10px;">`;
+
+                Object.keys(feeRecords).forEach(rm => {
+                    let rec = feeRecords[rm];
+                    html += `
+                        <div class="item-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong>Room ${rm} - ${rec.name}</strong>
+                                <span class="badge ${rec.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${rec.status}</span>
+                            </div>
+                            <p style="margin-top:4px; font-size:13px;">Annual Fee: ${rec.annualFee} | Mess Dues: ${rec.messDues}</p>
+                            <div style="margin-top:8px; display:flex; gap:10px;">
+                                <button onclick="editFeeRecord('${rm}')" style="background:#3b82f6; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
+                                <button onclick="deleteFeeRecord('${rm}')" style="background:#ef4444; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
+                            </div>
+                        </div>`;
+                });
+                html += `</div>`;
+            }
+            content.innerHTML = html;
+        }
+
+        async function saveFeeRecord() {
+            const room = document.getElementById('staff-fee-room').value;
+            const name = document.getElementById('staff-stu-name').value.trim();
+            const annual = document.getElementById('staff-annual-fee').value.trim();
+            const mess = document.getElementById('staff-mess-dues').value.trim();
+            const status = document.getElementById('staff-fee-status').value;
+
+            if (!room || !name) return alert("Please select room and enter student name!");
+
+            await window.rtdbSet(window.rtdbRef(window.db, `fees/${room}`), {
+                name: name, annualFee: annual || "₹45,000", messDues: mess || "₹0", status: status
+            });
+            alert(`Fee record saved for Room ${room}`);
+            renderFeePayments();
+        }
+
+        function editFeeRecord(rm) {
+            let rec = feeRecords[rm];
+            if (!rec) return;
+            document.getElementById('staff-stu-name').value = rec.name;
+            document.getElementById('staff-annual-fee').value = rec.annualFee;
+            document.getElementById('staff-mess-dues').value = rec.messDues;
+            document.getElementById('staff-fee-status').value = rec.status;
+            document.getElementById('form-title').innerText = `Editing Fee Record for Room ${rm}`;
+        }
+
+        async function deleteFeeRecord(rm) {
+            if (confirm(`Are you sure you want to delete fee record for Room ${rm}?`)) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${rm}`));
+                renderFeePayments();
+            }
+        }
+
+        function renderOutPass() {
+            const content = document.getElementById('modal-content');
+            let html = `<h2>📝 Out-Pass / Leave Application</h2><hr style="margin: 10px 0;">`;
+            
+            if (currentUser.role === 'student') {
+                html += `
+                    <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4>Apply for Leave Pass</h4>
+                        <label style="font-size:12px; font-weight:bold; margin-top:8px; display:block;">Select Preset Reason:</label>
+                        <select id="leave-preset" onchange="autoFillReason()" style="width:100%; margin: 6px 0; padding: 8px;">
+                            <option value="">-- Select or Type Below --</option>
+                            <option value="Home Visit (Going to hometown)">Home Visit (Going to hometown)</option>
+                            <option value="Emergency / Medical Reason">Emergency / Medical Reason</option>
+                            <option value="Local Outing (Shopping / Work)">Local Outing (Shopping / Work)</option>
+                            <option value="Personal Work">Personal Work</option>
+                        </select>
+                        <label style="font-size:12px; font-weight:bold; margin-top:8px; display:block;">Reason Details (Editable):</label>
+                        <textarea id="leave-reason" placeholder="Write or edit reason for leave..." style="width:100%; margin:6px 0; padding:8px;"></textarea>
+                        <div style="display:flex; gap:10px; margin: 8px 0;">
+                            <div style="flex:1;"><label style="font-size:12px; font-weight:bold;">From Date:</label><input type="date" id="leave-from" style="width:100%; padding:8px;"></div>
+                            <div style="flex:1;"><label style="font-size:12px; font-weight:bold;">To Date:</label><input type="date" id="leave-to" style="width:100%; padding:8px;"></div>
+                        </div>
+                        <button class="btn" style="margin-top:10px;" onclick="submitLeaveRequest()">Submit Leave Application</button>
+                    </div>`;
+            }
+
+            html += `<h4>Submitted Applications</h4><div style="margin-top:10px;">`;
+            let list = currentUser.role === 'student' ? outPasses.filter(op => op.room === currentUser.room) : outPasses;
+            if (list.length === 0) {
+                html += `<p style="color:#6b7280; font-size:13px;">No leave requests found.</p>`;
+            } else {
+                list.forEach(op => {
+                    let badgeClass = op.status === 'Approved' ? 'badge-resolved' : (op.status === 'Rejected' ? 'badge-rejected' : 'badge-pending');
+                    html += `
+                        <div class="item-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong>${op.name} (Room ${op.room})</strong>
+                                <span class="badge ${badgeClass}">${op.status}</span>
+                            </div>
+                            <p style="margin:6px 0;"><strong>Reason:</strong> ${op.reason}</p>
+                            <p style="font-size:12px; color:#6b7280;">📅 <strong>Duration:</strong> ${op.fromDate} to ${op.toDate}</p>
+                            ${currentUser.role === 'staff' && op.status === 'Pending' ? `
+                                <div style="margin-top:10px; display:flex; gap:10px;">
+                                    <button class="btn" style="background:#10b981; padding:6px;" onclick="updateLeaveStatus('${op.firebaseId}', 'Approved')">Approve</button>
+                                    <button class="btn" style="background:#ef4444; padding:6px;" onclick="updateLeaveStatus('${op.firebaseId}', 'Rejected')">Reject</button>
+                                </div>` : ''}
+                        </div>`;
+                });
+            }
+            html += `</div>`;
+            content.innerHTML = html;
+        }
+
+        function autoFillReason() {
+            const preset = document.getElementById('leave-preset').value;
+            if (preset) document.getElementById('leave-reason').value = preset;
+        }
+
+        async function submitLeaveRequest() {
+            const reason = document.getElementById('leave-reason').value.trim();
+            const fromDate = document.getElementById('leave-from').value;
+            const toDate = document.getElementById('leave-to').value;
+            if (!reason || !fromDate || !toDate) return alert("Please specify reason, start date, and end date.");
+            
+            const newRef = window.rtdbPush(window.rtdbRef(window.db, "outpasses"));
+            await window.rtdbSet(newRef, {
+                name: currentUser.name, room: currentUser.room, reason: reason, fromDate: fromDate, toDate: toDate, status: "Pending", createdAt: Date.now()
+            });
+            renderOutPass();
+        }
+
+        async function updateLeaveStatus(firebaseId, newStatus) {
+            await window.rtdbUpdate(window.rtdbRef(window.db, `outpasses/${firebaseId}`), { status: newStatus });
+        }
+
+        function renderStaffDirectory() {
+            const content = document.getElementById('modal-content');
+            let isStaff = currentUser.role === 'staff';
+            let html = `<h2>👥 Staff Directory & Emergency Contacts</h2><hr style="margin: 10px 0;">`;
+
+            if (isStaff) {
+                html += `
+                    <div style="background: #e0e7ff; padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4>Add New Staff Contact</h4>
+                        <input type="text" id="add-staff-role" placeholder="Staff Role/Position" style="width:100%; margin:6px 0; padding:8px;">
+                        <input type="text" id="add-staff-name" placeholder="Staff Person Name" style="width:100%; margin:6px 0; padding:8px;">
+                        <input type="tel" id="add-staff-phone" placeholder="Phone Number" style="width:100%; margin:6px 0; padding:8px;">
+                        <button class="btn" style="margin-top:6px;" onclick="addStaffMember()">Add Staff Contact</button>
+                    </div>`;
+            }
+
+            staffMembers.forEach(s => {
+                html += `
+                    <div class="item-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <strong>${s.role}:</strong> ${s.name}
+                                <br><small style="color:#6b7280;">📞 ${s.phone}</small>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <a href="tel:${s.phone}" class="call-btn">📞 Call</a>
+                                ${isStaff ? `
+                                    <button onclick="editStaffMember('${s.firebaseId}', '${s.name}', '${s.phone}')" style="background:#3b82f6; color:white; border:none; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️</button>
+                                    <button onclick="deleteStaffMember('${s.firebaseId}')" style="background:#ef4444; color:white; border:none; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            content.innerHTML = html;
+        }
+
+        async function addStaffMember() {
+            const role = document.getElementById('add-staff-role').value.trim();
+            const name = document.getElementById('add-staff-name').value.trim();
+            const phone = document.getElementById('add-staff-phone').value.trim();
+            if (!role || !name || !phone) return alert("Please fill all contact fields!");
+            
+            const newRef = window.rtdbPush(window.rtdbRef(window.db, "staff"));
+            await window.rtdbSet(newRef, { role: role, name: name, phone: phone, id: Date.now() });
+            renderStaffDirectory();
+        }
+
+        async function editStaffMember(firebaseId, curName, curPhone) {
+            let newName = prompt("Edit Staff Name:", curName);
+            let newPhone = prompt("Edit Phone Number:", curPhone);
+            if (newName && newPhone) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `staff/${firebaseId}`), { name: newName.trim(), phone: newPhone.trim() });
+            }
+        }
+
+        async function deleteStaffMember(firebaseId) {
+            if (confirm("Are you sure you want to delete this staff contact?")) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `staff/${firebaseId}`));
+            }
+        }
+
+        async function addNotice() {
+            const title = document.getElementById('nt-title').value;
+            const body = document.getElementById('nt-body').value;
+            if (title && body) {
+                const newRef = window.rtdbPush(window.rtdbRef(window.db, "notices"));
+                await window.rtdbSet(newRef, { id: Date.now(), title: title, date: new Date().toISOString().split('T')[0], content: body });
+                openModule('notice');
+            }
+        }
+
+        async function deleteNotice(firebaseId) {
+            await window.rtdbRemove(window.rtdbRef(window.db, `notices/${firebaseId}`));
+            openModule('notice');
+        }
+
+        function enlargeImage(src) {
+            document.getElementById('modal-content').innerHTML = `<img src="${src}" style="width:100%; max-height:75vh; object-fit:contain; border-radius:8px;">`;
+        }
+    </script>
+</body>
+</html>
+
