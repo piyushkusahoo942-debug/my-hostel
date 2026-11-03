@@ -1,12 +1,17 @@
 {
-  "background_color": "#ffffff",
-  "dir": "ltr",
+  "name": "My Hostel Portal",
+  "short_name": "My Hostel",
+  "start_url": "./Index.html",
   "display": "standalone",
-  "name": "MY HOSTEL",
-  "orientation": "any",
-  "scope": "/",
-  "short_name": "M.H",
-  "start_url": "/",
-  "theme_color": "#ffffff",
+  "background_color": "#111827",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
   "id": "Com.myhostel.app"
 }
+
