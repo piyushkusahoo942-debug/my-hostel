@@ -1,0 +1,12 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "MY HOSTEL",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "M.H",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "id": "Com.myhostel.app"
+}
