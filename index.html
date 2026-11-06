@@ -110,10 +110,11 @@
         .notification-badge {
             background: #ef4444;
             color: white;
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 10px;
+            font-size: 11px;
+            padding: 2px 7px;
+            border-radius: 12px;
             font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
 
         .user-badge-header {
@@ -471,6 +472,7 @@
 
     <div class="container">
         <div class="header">
+            <!-- MH Logo Badge (Top-Left) - Instantly shows total unread/pending items -->
             <div class="mh-badge-btn" onclick="openDeveloperProfile()">
                 MH <span id="mh-nav-badge" class="notification-badge" style="display:none;">0</span>
             </div>
@@ -573,7 +575,10 @@
                 </div>
 
                 <div class="dashboard-grid">
-                    <div class="dash-card" onclick="openModule('notice')"><div class="icon">📢</div><h4>Notice Board</h4><p>Announcements</p></div>
+                    <div class="dash-card" onclick="openModule('notice')" style="position:relative;">
+                        <div class="icon">📢</div><h4>Notice Board</h4><p>Announcements</p>
+                        <span id="card-badge-notice" class="notification-badge" style="position:absolute; top:10px; right:10px; display:none;">0</span>
+                    </div>
                     <div class="dash-card" onclick="openModule('mess')"><div class="icon">🍽️</div><h4>Mess Menu</h4><p>Meals & Attendance</p></div>
                     <div class="dash-card" onclick="openModule('complaint')" style="position:relative;">
                         <div class="icon">🛠️</div><h4>Complaint Box</h4><p>Issues</p>
@@ -679,7 +684,7 @@
         };
 
         function startRTDBListeners() {
-            // 1. Notices Listener (Updates for both Admin and Students)
+            // 1. Notices Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "notices"), (snapshot) => {
                 const data = snapshot.val();
                 notices = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
@@ -690,6 +695,7 @@
                     }
                 }
                 lastNoticeCount = notices.length;
+                updateNotificationBadges();
                 refreshActiveModule('Notice Board');
             });
 
@@ -698,7 +704,6 @@
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 
-                // If Staff: Alert on new complaint
                 let currentPendingCount = complaints.filter(c => c.status === 'Pending').length;
                 if (lastComplaintCount !== -1 && currentPendingCount > lastComplaintCount) {
                     if (currentUser && currentUser.role === 'staff') {
@@ -707,7 +712,6 @@
                 }
                 lastComplaintCount = currentPendingCount;
 
-                // If Student: Alert when complaint is resolved
                 if (currentUser && currentUser.role === 'student') {
                     complaints.forEach(c => {
                         if (c.room === currentUser.room && c.name === currentUser.name) {
@@ -742,14 +746,12 @@
                 refreshActiveModule('Out-Pass');
             });
 
-            // 4. Room Allocation Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "allocations"), (snapshot) => {
                 const data = snapshot.val();
                 roomAllocations = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 refreshActiveModule('Room Allocation');
             });
 
-            // 5. Hostel Rules Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "rules"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -760,7 +762,6 @@
                 refreshActiveModule('Hostel Rules');
             });
 
-            // 6. Staff Directory Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "staff"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -771,7 +772,6 @@
                 refreshActiveModule('Staff Directory');
             });
 
-            // 7. Fees Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "fees"), (snapshot) => {
                 feeRecords = snapshot.val() || {};
                 refreshActiveModule('Fee & Payments');
@@ -805,8 +805,12 @@
         function updateNotificationBadges() {
             let pendingComplaints = complaints.filter(c => c.status === 'Pending').length;
             let pendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
-            let totalUnread = pendingComplaints + pendingOutpasses;
+            let totalNotices = notices.length;
+            
+            // Total unread items for global header MH badge
+            let totalUnread = (currentUser && currentUser.role === 'staff') ? (pendingComplaints + pendingOutpasses) : totalNotices;
 
+            // 1. Complaint Box Badge
             let cBadge = document.getElementById('card-badge-complaint');
             if(cBadge) {
                 if(pendingComplaints > 0) {
@@ -817,6 +821,7 @@
                 }
             }
 
+            // 2. Out-pass Badge
             let oBadge = document.getElementById('card-badge-outpass');
             if(oBadge) {
                 if(pendingOutpasses > 0) {
@@ -827,11 +832,22 @@
                 }
             }
 
-            let totalStudentsCount = Object.keys(registeredStudents).length;
+            // 3. Notice Board Badge for Students
+            let nBadge = document.getElementById('card-badge-notice');
+            if(nBadge) {
+                if(currentUser && currentUser.role === 'student' && totalNotices > 0) {
+                    nBadge.innerText = totalNotices;
+                    nBadge.style.display = 'inline-block';
+                } else {
+                    nBadge.style.display = 'none';
+                }
+            }
+
+            // 4. Global Header MH Logo Badge (Shows up instantly on top-left)
             let navBadge = document.getElementById('mh-nav-badge');
             if(navBadge) {
-                if(totalStudentsCount > 0) {
-                    navBadge.innerText = totalStudentsCount;
+                if(totalUnread > 0) {
+                    navBadge.innerText = totalUnread;
                     navBadge.style.display = 'inline-block';
                 } else {
                     navBadge.style.display = 'none';
@@ -939,6 +955,7 @@
                 document.getElementById('user-display-role').innerText = "Staff: " + currentUser.position;
                 document.getElementById('user-tag').innerText = "Admin Access";
             }
+            updateNotificationBadges();
         }
 
         function showScreen(screenId) {
