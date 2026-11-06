@@ -418,15 +418,12 @@
             margin-top: 15px;
         }
 
-        /* PRINT STYLING: Only prints kitchen attendance summary list, hides navigation, weekly menu and buttons */
         @media print {
             body { background: white; padding: 0; }
             .container { box-shadow: none; border-radius: 0; max-width: 100%; }
             .header, .modal-close, .btn, .switch-btn, .mh-badge-btn, .tab-btn, button { display: none !important; }
             .modal-overlay { position: static; background: white; padding: 0; display: block !important; }
             .modal-box { max-height: none; box-shadow: none; padding: 0; }
-            /* Hide weekly menu section during print */
-            h4:nth-of-type(n+3), .item-card:has(.badge-resolved), .item-card:has(.badge-rejected) { display: block !important; }
         }
     </style>
 
@@ -623,6 +620,10 @@
             Dinner: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" }
         };
 
+        // Track previous counts to detect new notifications
+        let lastComplaintCount = -1;
+        let lastOutpassCount = -1;
+
         const staffCodes = {
             "Chief Warden": "7854123",
             "Hostel Incharge": "6541230",
@@ -631,8 +632,45 @@
             "Kitchen Mess Cook": "3214567"
         };
 
+        // --- ALARM SOUND & SYSTEM PUSH NOTIFICATION ENGINE ---
+        function requestNotificationPermission() {
+            if ("Notification" in window && Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+        }
+
+        function playNotificationSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5 Note
+                osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5 Note
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch(e) {
+                console.log("Audio play blocked by browser policy");
+            }
+        }
+
+        function triggerSystemNotification(title, message) {
+            playNotificationSound();
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(title, {
+                    body: message,
+                    icon: "https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH"
+                });
+            }
+        }
+
         window.initAppAfterFirebase = function() {
             startRTDBListeners();
+            requestNotificationPermission();
             
             const savedUser = localStorage.getItem('myhostel_active_user');
             if (savedUser) {
@@ -652,6 +690,16 @@
             window.rtdbOnValue(window.rtdbRef(window.db, "complaints"), (snapshot) => {
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                
+                // Detect new complaints and trigger push notification/sound
+                let currentPendingCount = complaints.filter(c => c.status === 'Pending').length;
+                if (lastComplaintCount !== -1 && currentPendingCount > lastComplaintCount) {
+                    if (currentUser && currentUser.role === 'staff') {
+                        triggerSystemNotification("🚨 New Hostel Complaint", "A student submitted a new complaint!");
+                    }
+                }
+                lastComplaintCount = currentPendingCount;
+
                 cleanupExpiredComplaints();
                 updateNotificationBadges();
                 refreshActiveModule('Complaint Box');
@@ -660,6 +708,16 @@
             window.rtdbOnValue(window.rtdbRef(window.db, "outpasses"), (snapshot) => {
                 const data = snapshot.val();
                 outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                
+                // Detect new leave requests and trigger notification/sound
+                let currentPendingOutpass = outPasses.filter(op => op.status === 'Pending').length;
+                if (lastOutpassCount !== -1 && currentPendingOutpass > lastOutpassCount) {
+                    if (currentUser && currentUser.role === 'staff') {
+                        triggerSystemNotification("📝 New Leave Pass Request", "A student applied for leave pass!");
+                    }
+                }
+                lastOutpassCount = currentPendingOutpass;
+
                 updateNotificationBadges();
                 refreshActiveModule('Out-Pass');
             });
@@ -859,7 +917,7 @@
         function updateRooms(floorId, roomId) {
             const floor = document.getElementById(floorId).value;
             const roomSelect = document.getElementById(roomId);
-            roomSelect.innerHTML = '<option value="">-- Choose Room --</option>';
+            roomSelect.innerHTML = '<option value="">-- Choose Floor --</option>';
             let start = 0, end = 0;
             if (floor === 'ground') { start = 101; end = 135; }
             else if (floor === 'first') { start = 201; end = 235; }
@@ -899,6 +957,7 @@
                 lastLogin: Date.now()
             });
 
+            requestNotificationPermission();
             setupUserUI();
             showScreen('dashboard-screen');
         }
@@ -916,6 +975,7 @@
 
             currentUser = { role: 'staff', position: role, name: name, phone: phone };
             localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser));
+            requestNotificationPermission();
             setupUserUI();
             showScreen('dashboard-screen');
         }
@@ -1318,6 +1378,7 @@
                     createdAt: Date.now()
                 });
 
+                triggerSystemNotification("📢 Complaint Sent", "Your complaint has been sent to staff.");
                 alert("Complaint submitted successfully!");
                 renderComplaintBox();
             } catch (err) {
@@ -1330,6 +1391,7 @@
 
         async function resolveComplaint(firebaseId) {
             await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${firebaseId}`), { status: "Resolved", resolvedAt: Date.now() });
+            triggerSystemNotification("✅ Complaint Resolved", "Complaint status updated to Resolved.");
         }
 
         async function resendComplaint(firebaseId) {
@@ -1647,11 +1709,13 @@
             await window.rtdbSet(newRef, {
                 name: currentUser.name, room: currentUser.room, reason: reason, fromDate: fromDate, toDate: toDate, status: "Pending", createdAt: Date.now()
             });
+            triggerSystemNotification("📝 Leave Pass Applied", "Your leave application has been submitted.");
             renderOutPass();
         }
 
         async function updateLeaveStatus(firebaseId, newStatus) {
             await window.rtdbUpdate(window.rtdbRef(window.db, `outpasses/${firebaseId}`), { status: newStatus });
+            triggerSystemNotification("📋 Out-Pass Updated", `Leave pass status set to ${newStatus}`);
         }
 
         function renderStaffDirectory() {
@@ -1722,6 +1786,7 @@
             if (title && body) {
                 const newRef = window.rtdbPush(window.rtdbRef(window.db, "notices"));
                 await window.rtdbSet(newRef, { id: Date.now(), title: title, date: new Date().toISOString().split('T')[0], content: body });
+                triggerSystemNotification("📢 New Hostel Notice", title);
                 openModule('notice');
             }
         }
