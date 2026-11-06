@@ -620,7 +620,6 @@
             Dinner: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" }
         };
 
-        // Track previous counts to detect new notifications
         let lastComplaintCount = -1;
         let lastOutpassCount = -1;
 
@@ -632,7 +631,6 @@
             "Kitchen Mess Cook": "3214567"
         };
 
-        // --- ALARM SOUND & SYSTEM PUSH NOTIFICATION ENGINE ---
         function requestNotificationPermission() {
             if ("Notification" in window && Notification.permission !== "granted") {
                 Notification.requestPermission();
@@ -645,17 +643,15 @@
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
                 osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5 Note
-                osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5 Note
+                osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15);
                 gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
                 osc.start();
                 osc.stop(audioCtx.currentTime + 0.3);
-            } catch(e) {
-                console.log("Audio play blocked by browser policy");
-            }
+            } catch(e) {}
         }
 
         function triggerSystemNotification(title, message) {
@@ -691,7 +687,6 @@
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 
-                // Detect new complaints and trigger push notification/sound
                 let currentPendingCount = complaints.filter(c => c.status === 'Pending').length;
                 if (lastComplaintCount !== -1 && currentPendingCount > lastComplaintCount) {
                     if (currentUser && currentUser.role === 'staff') {
@@ -709,7 +704,6 @@
                 const data = snapshot.val();
                 outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 
-                // Detect new leave requests and trigger notification/sound
                 let currentPendingOutpass = outPasses.filter(op => op.status === 'Pending').length;
                 if (lastOutpassCount !== -1 && currentPendingOutpass > lastOutpassCount) {
                     if (currentUser && currentUser.role === 'staff') {
@@ -778,11 +772,13 @@
             });
         }
 
+        // --- UNIFIED IN-APP BADGES + HOME SCREEN APP ICON BADGING API ---
         function updateNotificationBadges() {
             let pendingComplaints = complaints.filter(c => c.status === 'Pending').length;
             let pendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
-            let totalStudentsCount = Object.keys(registeredStudents).length;
+            let totalUnread = pendingComplaints + pendingOutpasses;
 
+            // 1. In-app Complaint Box Badge
             let cBadge = document.getElementById('card-badge-complaint');
             if(cBadge) {
                 if(pendingComplaints > 0) {
@@ -793,6 +789,7 @@
                 }
             }
 
+            // 2. In-app Out-pass Badge
             let oBadge = document.getElementById('card-badge-outpass');
             if(oBadge) {
                 if(pendingOutpasses > 0) {
@@ -803,6 +800,8 @@
                 }
             }
 
+            // 3. MH Logo Badge
+            let totalStudentsCount = Object.keys(registeredStudents).length;
             let navBadge = document.getElementById('mh-nav-badge');
             if(navBadge) {
                 if(totalStudentsCount > 0) {
@@ -811,6 +810,17 @@
                 } else {
                     navBadge.style.display = 'none';
                 }
+            }
+
+            // 4. Mobile Home Screen App Icon Badge (App Icon Badging API)
+            if ('setAppBadge' in navigator) {
+                try {
+                    if (totalUnread > 0) {
+                        navigator.setAppBadge(totalUnread).catch(err => console.log(err));
+                    } else {
+                        navigator.clearAppBadge().catch(err => console.log(err));
+                    }
+                } catch (e) {}
             }
         }
 
@@ -983,6 +993,9 @@
         function logoutSession() {
             localStorage.removeItem('myhostel_active_user');
             currentUser = null;
+            if ('clearAppBadge' in navigator) {
+                navigator.clearAppBadge().catch(e => {});
+            }
             document.getElementById('header-user-badge').style.display = 'none';
             showScreen('role-screen');
         }
@@ -997,7 +1010,6 @@
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-        /* PRIMARY MH LOGO ACTION: Opens Developer Profile, with Admin Dashboard inside for staff */
         function openDeveloperProfile() {
             const content = document.getElementById('modal-content');
             document.getElementById('modal-overlay').style.display = 'flex';
