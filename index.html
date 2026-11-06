@@ -98,10 +98,22 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             border: 2px solid rgba(255,255,255,0.3);
             transition: transform 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
         }
 
         .mh-badge-btn:hover {
             transform: scale(1.08);
+        }
+
+        .notification-badge {
+            background: #ef4444;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
         }
 
         .user-badge-header {
@@ -250,6 +262,7 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
             border: 1px solid #f3f4f6;
             transition: all 0.2s ease;
+            position: relative;
         }
 
         .dash-card:hover {
@@ -405,16 +418,19 @@
             margin-top: 15px;
         }
 
+        /* PRINT STYLING: Only prints kitchen attendance summary list, hides navigation, weekly menu and buttons */
         @media print {
             body { background: white; padding: 0; }
             .container { box-shadow: none; border-radius: 0; max-width: 100%; }
-            .header, .modal-close, .btn, .switch-btn, .mh-badge-btn { display: none !important; }
+            .header, .modal-close, .btn, .switch-btn, .mh-badge-btn, .tab-btn, button { display: none !important; }
             .modal-overlay { position: static; background: white; padding: 0; display: block !important; }
             .modal-box { max-height: none; box-shadow: none; padding: 0; }
+            /* Hide weekly menu section during print */
+            h4:nth-of-type(n+3), .item-card:has(.badge-resolved), .item-card:has(.badge-rejected) { display: block !important; }
         }
     </style>
 
-    <!-- Firebase Realtime Database SDK Imports with Correct Regional databaseURL -->
+    <!-- Firebase Realtime Database SDK Imports -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, push, onValue, update, remove, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -458,7 +474,9 @@
 
     <div class="container">
         <div class="header">
-            <div class="mh-badge-btn" onclick="openDeveloperProfile()">MH</div>
+            <div class="mh-badge-btn" onclick="openDeveloperProfile()">
+                MH <span id="mh-nav-badge" class="notification-badge" style="display:none;">0</span>
+            </div>
             <h1>My Hostel</h1>
             <p>New Version Hostel Management Portal</p>
 
@@ -560,12 +578,18 @@
                 <div class="dashboard-grid">
                     <div class="dash-card" onclick="openModule('notice')"><div class="icon">📢</div><h4>Notice Board</h4><p>Announcements</p></div>
                     <div class="dash-card" onclick="openModule('mess')"><div class="icon">🍽️</div><h4>Mess Menu</h4><p>Meals & Attendance</p></div>
-                    <div class="dash-card" onclick="openModule('complaint')"><div class="icon">🛠️</div><h4>Complaint Box</h4><p>Issues</p></div>
+                    <div class="dash-card" onclick="openModule('complaint')" style="position:relative;">
+                        <div class="icon">🛠️</div><h4>Complaint Box</h4><p>Issues</p>
+                        <span id="card-badge-complaint" class="notification-badge" style="position:absolute; top:10px; right:10px; display:none;">0</span>
+                    </div>
                     <div class="dash-card" onclick="openModule('rules')"><div class="icon">📋</div><h4>Hostel Rules</h4><p>Guidelines</p></div>
                     <div class="dash-card" onclick="openModule('staff')"><div class="icon">👥</div><h4>Staff Directory</h4><p>Contacts</p></div>
                     <div class="dash-card" onclick="openModule('allocation')"><div class="icon">🚪</div><h4>Room Allocation</h4><p>Roommates</p></div>
                     <div class="dash-card" onclick="openModule('fee')"><div class="icon">💰</div><h4>Fee & Payments</h4><p>Dues</p></div>
-                    <div class="dash-card" onclick="openModule('outpass')"><div class="icon">📝</div><h4>Out-Pass / Leave</h4><p>Leave Application</p></div>
+                    <div class="dash-card" onclick="openModule('outpass')" style="position:relative;">
+                        <div class="icon">📝</div><h4>Out-Pass / Leave</h4><p>Leave Application</p>
+                        <span id="card-badge-outpass" class="notification-badge" style="position:absolute; top:10px; right:10px; display:none;">0</span>
+                    </div>
                 </div>
 
                 <button class="btn logout-btn" onclick="logoutSession()">Logout / Switch Account</button>
@@ -591,6 +615,8 @@
         let roomAllocations = [];
         let staffMembers = [];
         let hostelRules = [];
+        let registeredStudents = {};
+        let blockedUsers = {};
         let messAttendance = {};
         let messSchedule = {
             Lunch: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" },
@@ -617,36 +643,33 @@
         };
 
         function startRTDBListeners() {
-            // Notices Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "notices"), (snapshot) => {
                 const data = snapshot.val();
                 notices = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 refreshActiveModule('Notice Board');
             });
 
-            // Complaints Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "complaints"), (snapshot) => {
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 cleanupExpiredComplaints();
+                updateNotificationBadges();
                 refreshActiveModule('Complaint Box');
             });
 
-            // Outpasses Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "outpasses"), (snapshot) => {
                 const data = snapshot.val();
                 outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                updateNotificationBadges();
                 refreshActiveModule('Out-Pass');
             });
 
-            // Allocations Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "allocations"), (snapshot) => {
                 const data = snapshot.val();
                 roomAllocations = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 refreshActiveModule('Room Allocation');
             });
 
-            // Rules Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "rules"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -657,7 +680,6 @@
                 refreshActiveModule('Hostel Rules');
             });
 
-            // Staff Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "staff"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -668,13 +690,20 @@
                 refreshActiveModule('Staff Directory');
             });
 
-            // Fees Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "fees"), (snapshot) => {
                 feeRecords = snapshot.val() || {};
                 refreshActiveModule('Fee & Payments');
             });
 
-            // Mess Menu Listener
+            window.rtdbOnValue(window.rtdbRef(window.db, "registered_students"), (snapshot) => {
+                registeredStudents = snapshot.val() || {};
+                updateNotificationBadges();
+            });
+
+            window.rtdbOnValue(window.rtdbRef(window.db, "blocked_users"), (snapshot) => {
+                blockedUsers = snapshot.val() || {};
+            });
+
             window.rtdbOnValue(window.rtdbRef(window.db, "settings/messMenu"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -685,11 +714,46 @@
                 refreshActiveModule('Mess Menu');
             });
 
-            // Mess Attendance Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "mess_attendance"), (snapshot) => {
                 messAttendance = snapshot.val() || {};
                 refreshActiveModule('Mess Menu');
             });
+        }
+
+        function updateNotificationBadges() {
+            let pendingComplaints = complaints.filter(c => c.status === 'Pending').length;
+            let pendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
+            let totalStudentsCount = Object.keys(registeredStudents).length;
+
+            let cBadge = document.getElementById('card-badge-complaint');
+            if(cBadge) {
+                if(pendingComplaints > 0) {
+                    cBadge.innerText = pendingComplaints;
+                    cBadge.style.display = 'inline-block';
+                } else {
+                    cBadge.style.display = 'none';
+                }
+            }
+
+            let oBadge = document.getElementById('card-badge-outpass');
+            if(oBadge) {
+                if(pendingOutpasses > 0) {
+                    oBadge.innerText = pendingOutpasses;
+                    oBadge.style.display = 'inline-block';
+                } else {
+                    oBadge.style.display = 'none';
+                }
+            }
+
+            let navBadge = document.getElementById('mh-nav-badge');
+            if(navBadge) {
+                if(totalStudentsCount > 0) {
+                    navBadge.innerText = totalStudentsCount;
+                    navBadge.style.display = 'inline-block';
+                } else {
+                    navBadge.style.display = 'none';
+                }
+            }
         }
 
         function refreshActiveModule(moduleTitleKeyword) {
@@ -811,7 +875,7 @@
             }
         }
 
-        function handleStudentLogin() {
+        async function handleStudentLogin() {
             const name = document.getElementById('stu-name').value.trim();
             const phone = document.getElementById('stu-phone').value.trim();
             const room = document.getElementById('stu-room').value;
@@ -820,13 +884,26 @@
             if (!name || !phone || !room || !code) return alert("Please fill all details.");
             if (code !== room + "0") return alert("Invalid room verification code!");
 
+            let studentKey = phone.replace(/[^0-9]/g, '');
+            if (blockedUsers[studentKey] && blockedUsers[studentKey].blocked) {
+                return alert("Access Denied: Your account has been blocked by the hostel admin.");
+            }
+
             currentUser = { role: 'student', name: name, phone: phone, room: room };
             localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser));
+
+            await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${studentKey}`), {
+                name: name,
+                phone: phone,
+                room: room,
+                lastLogin: Date.now()
+            });
+
             setupUserUI();
             showScreen('dashboard-screen');
         }
 
-        function handleStaffLogin() {
+        async function handleStaffLogin() {
             const name = document.getElementById('staff-name').value.trim();
             const phone = document.getElementById('staff-phone').value.trim();
             const role = document.getElementById('staff-role').value;
@@ -860,11 +937,14 @@
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
+        /* PRIMARY MH LOGO ACTION: Opens Developer Profile, with Admin Dashboard inside for staff */
         function openDeveloperProfile() {
             const content = document.getElementById('modal-content');
             document.getElementById('modal-overlay').style.display = 'flex';
             
-            content.innerHTML = `
+            let isStaffAdmin = currentUser && currentUser.role === 'staff';
+
+            let html = `
                 <div class="dev-profile-container">
                     <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Piyush" alt="Piyush Kumar Sahoo" class="dev-avatar">
                     <h2 style="color:var(--primary);">Piyush Kumar Sahoo</h2>
@@ -875,10 +955,55 @@
                         <p style="margin-top:6px;"><strong>🏫 College:</strong> NC Autonomous College</p>
                         <p style="margin-top:6px;"><strong>💻 Project:</strong> My Hostel Management Portal</p>
                         <p style="margin-top:6px; font-size:12px; color:#4b5563;">Designed and developed by Piyush Kumar Sahoo to streamline hostel operations, cloud storage, and mess attendance.</p>
-                    </div>
+                    </div>`;
 
-                    <p style="margin-top:15px; font-size:11px; color:#9ca3af;">Developer Profile • Read Only Access</p>
-                </div>`;
+            if (isStaffAdmin) {
+                let studentKeys = Object.keys(registeredStudents);
+                html += `
+                    <hr style="margin:20px 0;">
+                    <h3 style="color:var(--primary); margin-bottom:10px;">🛡️ Admin Dashboard (${studentKeys.length} Students)</h3>
+                    <p style="font-size:12px; color:#6b7280; margin-bottom:12px;">Manage student portal access and permissions.</p>`;
+
+                if (studentKeys.length === 0) {
+                    html += `<p style="color:#6b7280; font-size:13px;">No registered students found.</p>`;
+                } else {
+                    studentKeys.forEach(k => {
+                        let st = registeredStudents[k];
+                        let isBlocked = blockedUsers[k] && blockedUsers[k].blocked;
+                        html += `
+                            <div class="item-card" style="border-left-color:${isBlocked ? '#ef4444' : '#10b981'}; text-align:left;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div>
+                                        <strong>👤 ${st.name}</strong> (Room ${st.room})
+                                        <br><small style="color:#6b7280;">📞 ${st.phone}</small>
+                                    </div>
+                                    <div>
+                                        <span class="badge ${isBlocked ? 'badge-rejected' : 'badge-resolved'}">${isBlocked ? 'Blocked' : 'Active'}</span>
+                                        ${isBlocked ? 
+                                            `<button onclick="toggleBlockStudent('${k}', false)" style="background:#10b981; color:white; border:none; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:11px; margin-left:5px;">Unblock</button>` : 
+                                            `<button onclick="toggleBlockStudent('${k}', true)" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:11px; margin-left:5px;">Block</button>`
+                                        }
+                                    </div>
+                                </div>
+                            </div>`;
+                    });
+                }
+            } else {
+                let studentKeys = Object.keys(registeredStudents);
+                html += `<p style="margin-top:15px; font-size:13px; color:#4b5563;">Total active students connected: <strong>${studentKeys.length}</strong></p>`;
+            }
+
+            html += `<p style="margin-top:15px; font-size:11px; color:#9ca3af;">Developer Profile & Management Portal</p></div>`;
+            content.innerHTML = html;
+        }
+
+        async function toggleBlockStudent(studentKey, blockStatus) {
+            await window.rtdbSet(window.rtdbRef(window.db, `blocked_users/${studentKey}`), {
+                blocked: blockStatus,
+                updatedAt: Date.now()
+            });
+            alert(blockStatus ? "Student has been blocked successfully." : "Student has been unblocked successfully.");
+            openDeveloperProfile();
         }
 
         function openModule(moduleKey) {
@@ -943,7 +1068,6 @@
             if (currentUser.role === 'student') {
                 let docId = `${currentUser.room}_${currentUser.name.replace(/\s+/g, '')}`;
                 let currentAtt = messAttendance[docId] || { eat: 'Yes', type: 'Veg' };
-
                 let headerTitle = isOptInWindowOpen ? `Tomorrow's Meal Opt-In (${targetDayName})` : `Today's Meal Opt-In (${targetDayName})`;
 
                 html += `
