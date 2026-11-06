@@ -629,6 +629,11 @@
         let lastNoticeCount = -1;
         let lastStudentComplaintStatus = {};
 
+        // Track last read counts so badges clear when user opens the module
+        let lastReadNoticeCount = 0;
+        let lastReadPendingComplaints = 0;
+        let lastReadPendingOutpasses = 0;
+
         const staffCodes = {
             "Chief Warden": "7854123",
             "Hostel Incharge": "6541230",
@@ -658,7 +663,6 @@
                 osc.start();
                 osc.stop(audioCtx.currentTime + 0.3);
 
-                // Trigger vibration if supported on mobile
                 if ("vibrate" in navigator) {
                     navigator.vibrate([200, 100, 200]);
                 }
@@ -704,7 +708,7 @@
                 refreshActiveModuleByName('Notice Board');
             });
 
-            // 2. Complaints Real-time Listener (PENDING SOUND TRIGGER)
+            // 2. Complaints Real-time Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "complaints"), (snapshot) => {
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
@@ -712,7 +716,7 @@
                 let currentPendingCount = complaints.filter(c => c.status === 'Pending').length;
                 if (lastComplaintCount !== -1 && currentPendingCount > lastComplaintCount) {
                     if (currentUser && currentUser.role === 'staff') {
-                        playNotificationSound(); // Plays sound and vibration for new pending complaint
+                        playNotificationSound();
                         triggerSystemNotification("🚨 New Pending Complaint", "A student submitted a new complaint issue!");
                     }
                 }
@@ -735,7 +739,7 @@
                 refreshActiveModuleByName('Complaint Box');
             });
 
-            // 3. Out-Passes Real-time Listener (PENDING SOUND TRIGGER)
+            // 3. Out-Passes Real-time Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "outpasses"), (snapshot) => {
                 const data = snapshot.val();
                 outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
@@ -743,7 +747,7 @@
                 let currentPendingOutpass = outPasses.filter(op => op.status === 'Pending').length;
                 if (lastOutpassCount !== -1 && currentPendingOutpass > lastOutpassCount) {
                     if (currentUser && currentUser.role === 'staff') {
-                        playNotificationSound(); // Plays sound and vibration for new pending leave pass
+                        playNotificationSound();
                         triggerSystemNotification("📝 New Pending Leave Request", "A student applied for a new leave pass!");
                     }
                 }
@@ -818,16 +822,21 @@
         }
 
         function updateNotificationBadges() {
-            let pendingComplaints = complaints.filter(c => c.status === 'Pending').length;
-            let pendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
-            let totalNotices = notices.length;
+            let actualPendingComplaints = complaints.filter(c => c.status === 'Pending').length;
+            let actualPendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
+            let actualTotalNotices = notices.length;
+
+            // Compute unread by subtracting what user has already viewed/opened
+            let displayPendingComplaints = Math.max(0, actualPendingComplaints - lastReadPendingComplaints);
+            let displayPendingOutpasses = Math.max(0, actualPendingOutpasses - lastReadPendingOutpasses);
+            let displayTotalNotices = Math.max(0, actualTotalNotices - lastReadNoticeCount);
             
-            let totalUnread = (currentUser && currentUser.role === 'staff') ? (pendingComplaints + pendingOutpasses) : totalNotices;
+            let totalUnread = (currentUser && currentUser.role === 'staff') ? (displayPendingComplaints + displayPendingOutpasses) : displayTotalNotices;
 
             let cBadge = document.getElementById('card-badge-complaint');
             if(cBadge) {
-                if(pendingComplaints > 0) {
-                    cBadge.innerText = pendingComplaints;
+                if(displayPendingComplaints > 0) {
+                    cBadge.innerText = displayPendingComplaints;
                     cBadge.style.display = 'inline-block';
                 } else {
                     cBadge.style.display = 'none';
@@ -836,8 +845,8 @@
 
             let oBadge = document.getElementById('card-badge-outpass');
             if(oBadge) {
-                if(pendingOutpasses > 0) {
-                    oBadge.innerText = pendingOutpasses;
+                if(displayPendingOutpasses > 0) {
+                    oBadge.innerText = displayPendingOutpasses;
                     oBadge.style.display = 'inline-block';
                 } else {
                     oBadge.style.display = 'none';
@@ -846,8 +855,8 @@
 
             let nBadge = document.getElementById('card-badge-notice');
             if(nBadge) {
-                if(currentUser && currentUser.role === 'student' && totalNotices > 0) {
-                    nBadge.innerText = totalNotices;
+                if(currentUser && currentUser.role === 'student' && displayTotalNotices > 0) {
+                    nBadge.innerText = displayTotalNotices;
                     nBadge.style.display = 'inline-block';
                 } else {
                     nBadge.style.display = 'none';
@@ -1131,6 +1140,16 @@
         }
 
         function openModule(moduleKey) {
+            // Clear notification badge count when user opens the respective module
+            if (moduleKey === 'notice') {
+                lastReadNoticeCount = notices.length;
+            } else if (moduleKey === 'complaint') {
+                lastReadPendingComplaints = complaints.filter(c => c.status === 'Pending').length;
+            } else if (moduleKey === 'outpass') {
+                lastReadPendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
+            }
+            updateNotificationBadges();
+
             const content = document.getElementById('modal-content');
             document.getElementById('modal-overlay').style.display = 'flex';
 
