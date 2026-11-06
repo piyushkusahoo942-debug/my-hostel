@@ -622,6 +622,8 @@
 
         let lastComplaintCount = -1;
         let lastOutpassCount = -1;
+        let lastNoticeCount = -1;
+        let lastStudentComplaintStatus = {};
 
         const staffCodes = {
             "Chief Warden": "7854123",
@@ -677,16 +679,26 @@
         };
 
         function startRTDBListeners() {
+            // 1. Notices Listener (Updates for both Admin and Students)
             window.rtdbOnValue(window.rtdbRef(window.db, "notices"), (snapshot) => {
                 const data = snapshot.val();
                 notices = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
+                
+                if (lastNoticeCount !== -1 && notices.length > lastNoticeCount) {
+                    if (currentUser && currentUser.role === 'student') {
+                        triggerSystemNotification("📢 New Hostel Notice", "Admin posted a new notice!");
+                    }
+                }
+                lastNoticeCount = notices.length;
                 refreshActiveModule('Notice Board');
             });
 
+            // 2. Complaints Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "complaints"), (snapshot) => {
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 
+                // If Staff: Alert on new complaint
                 let currentPendingCount = complaints.filter(c => c.status === 'Pending').length;
                 if (lastComplaintCount !== -1 && currentPendingCount > lastComplaintCount) {
                     if (currentUser && currentUser.role === 'staff') {
@@ -695,11 +707,25 @@
                 }
                 lastComplaintCount = currentPendingCount;
 
+                // If Student: Alert when complaint is resolved
+                if (currentUser && currentUser.role === 'student') {
+                    complaints.forEach(c => {
+                        if (c.room === currentUser.room && c.name === currentUser.name) {
+                            let oldStatus = lastStudentComplaintStatus[c.firebaseId];
+                            if (oldStatus && oldStatus === 'Pending' && c.status === 'Resolved') {
+                                triggerSystemNotification("✅ Complaint Resolved", "Your room complaint has been resolved!");
+                            }
+                            lastStudentComplaintStatus[c.firebaseId] = c.status;
+                        }
+                    });
+                }
+
                 cleanupExpiredComplaints();
                 updateNotificationBadges();
                 refreshActiveModule('Complaint Box');
             });
 
+            // 3. Out-Passes Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "outpasses"), (snapshot) => {
                 const data = snapshot.val();
                 outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
@@ -716,12 +742,14 @@
                 refreshActiveModule('Out-Pass');
             });
 
+            // 4. Room Allocation Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "allocations"), (snapshot) => {
                 const data = snapshot.val();
                 roomAllocations = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
                 refreshActiveModule('Room Allocation');
             });
 
+            // 5. Hostel Rules Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "rules"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -732,6 +760,7 @@
                 refreshActiveModule('Hostel Rules');
             });
 
+            // 6. Staff Directory Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "staff"), (snapshot) => {
                 const data = snapshot.val();
                 if(data) {
@@ -742,6 +771,7 @@
                 refreshActiveModule('Staff Directory');
             });
 
+            // 7. Fees Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "fees"), (snapshot) => {
                 feeRecords = snapshot.val() || {};
                 refreshActiveModule('Fee & Payments');
@@ -772,13 +802,11 @@
             });
         }
 
-        // --- UNIFIED IN-APP BADGES + HOME SCREEN APP ICON BADGING API ---
         function updateNotificationBadges() {
             let pendingComplaints = complaints.filter(c => c.status === 'Pending').length;
             let pendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
             let totalUnread = pendingComplaints + pendingOutpasses;
 
-            // 1. In-app Complaint Box Badge
             let cBadge = document.getElementById('card-badge-complaint');
             if(cBadge) {
                 if(pendingComplaints > 0) {
@@ -789,7 +817,6 @@
                 }
             }
 
-            // 2. In-app Out-pass Badge
             let oBadge = document.getElementById('card-badge-outpass');
             if(oBadge) {
                 if(pendingOutpasses > 0) {
@@ -800,7 +827,6 @@
                 }
             }
 
-            // 3. MH Logo Badge
             let totalStudentsCount = Object.keys(registeredStudents).length;
             let navBadge = document.getElementById('mh-nav-badge');
             if(navBadge) {
@@ -812,13 +838,12 @@
                 }
             }
 
-            // 4. Mobile Home Screen App Icon Badge (App Icon Badging API)
             if ('setAppBadge' in navigator) {
                 try {
                     if (totalUnread > 0) {
-                        navigator.setAppBadge(totalUnread).catch(err => console.log(err));
+                        navigator.setAppBadge(totalUnread).catch(err => {});
                     } else {
-                        navigator.clearAppBadge().catch(err => console.log(err));
+                        navigator.clearAppBadge().catch(err => {});
                     }
                 } catch (e) {}
             }
