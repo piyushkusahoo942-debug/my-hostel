@@ -1,17 +1,21 @@
 {
-  "name": "My Hostel Portal",
-  "short_name": "My Hostel",
-  "start_url": "./Index.html",
+  "background_color": "#ffffff",
+  "dir": "ltr",
   "display": "standalone",
-  "background_color": "#111827",
-  "theme_color": "#4f46e5",
+  "name": "My hostel portal",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "My hostel",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "id": "com.myhostel.app",
+  "lang": "en",
   "icons": [
     {
-      "src": "https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH",
+      "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
-  "id": "com.myhostel.app"
 }
-
