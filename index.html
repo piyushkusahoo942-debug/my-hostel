@@ -726,7 +726,7 @@
             const targetDateKey = formatDateKey(targetDate);
             const targetDateDisplay = formatDisplayDate(targetDate);
             const isChoiceDay = VEG_NONVEG_DAYS.includes(targetDayName);
-            const slotKey = `${targetDateKey}_${isOptInWindowOpen ? 'OPTIN' : 'LOCKED'}`;
+            const slotKey = `${targetDateKey}_${isOptInWindowOpen ? 'OPTIN_6PM_6AM' : 'DAY_6AM_6PM'}`;
 
             return {
                 now,
@@ -739,6 +739,14 @@
                 isChoiceDay,
                 slotKey
             };
+        }
+
+        function getEffectiveMealTypeForRecord(item, ctx) {
+            if (!item) return 'Veg';
+            if (VEG_NONVEG_DAYS.includes(ctx.targetDayName)) {
+                return item.type === 'NonVeg' ? 'NonVeg' : 'Veg';
+            }
+            return 'Veg';
         }
 
         function resetRefreshState() {
@@ -814,10 +822,10 @@
             }
         });
 
-        // Auto-refresh staff/cook view when day or slot changes
+        // Auto-refresh staff/cook view when 6PM-6AM window or day changes
         setInterval(() => {
             checkAutoDayRefreshForStaff();
-        }, 60000);
+        }, 30000);
 
         function checkAutoDayRefreshForStaff() {
             const ctx = getMealContext();
@@ -1006,7 +1014,7 @@
                 refreshActiveModuleByName('Mess Menu');
             });
 
-            // 11. Mess Attendance Real-time Listener (Only alert on genuinely new/changed student opt-in)
+            // 11. Mess Attendance Real-time Listener (Auto-refresh live count in 6PM-6AM / slot & alert only on new/changed student opt-in)
             let initialAttendanceLoaded = false;
             window.rtdbOnValue(window.rtdbRef(window.db, "mess_attendance"), (snapshot) => {
                 messAttendance = snapshot.val() || {};
@@ -1025,7 +1033,7 @@
                 });
 
                 if (initialAttendanceLoaded && hasFreshStudentUpdate && currentUser && currentUser.role === 'staff') {
-                    triggerSystemNotification("🍽️ Meal Count Updated", `Updated for ${ctx.targetDayName} (${ctx.targetDateDisplay})`, false);
+                    triggerSystemNotification("🍽️ Meal Count Updated", `Live count refreshed for ${ctx.targetDayName} (${ctx.targetDateDisplay})`, false);
                 }
 
                 initialAttendanceLoaded = true;
@@ -1108,7 +1116,7 @@
                     else if (keyword.includes('Hostel Rules')) openModule('rules');
                     else if (keyword.includes('Staff Directory')) openModule('staff');
                     else if (keyword.includes('Fee')) openModule('fee');
-                    else if (keyword.includes('Mess')) openModule('mess');
+                    else if (keyword.includes('Mess')) renderMessMenu();
                 }
             }
         }
@@ -1443,7 +1451,6 @@
                 } else if (savedVal === "No") {
                     statusClass = "cal-no";
                 } else if (dKey < todayKey) {
-                    // Past date where student forgot/didn't opt-in -> Red (not eaten)
                     statusClass = "cal-no";
                 } else if (dKey === todayKey && !ctx.isOptInWindowOpen && attRecord && attRecord.eat === "No") {
                     statusClass = "cal-no";
@@ -1513,12 +1520,17 @@
                         </div>
 
                         ${ctx.isChoiceDay ? `
-                            <div style="margin-top:10px; display:flex; gap:15px; align-items:center;">
+                            <div style="margin-top:10px; display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
                                 <label style="font-weight:bold;">Select Preference (${ctx.targetDayName}):</label>
                                 <label><input type="radio" name="opt-type" value="Veg" ${currentAtt.type === 'Veg' ? 'checked' : ''} ${!ctx.isOptInWindowOpen ? 'disabled' : ''}> 🥦 Veg</label>
                                 <label><input type="radio" name="opt-type" value="NonVeg" ${currentAtt.type === 'NonVeg' ? 'checked' : ''} ${!ctx.isOptInWindowOpen ? 'disabled' : ''}> 🍗 Non-Veg</label>
                             </div>
-                        ` : ''}
+                        ` : `
+                            <div style="margin-top:10px; display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+                                <label style="font-weight:bold;">Meal Option (${ctx.targetDayName}):</label>
+                                <label><input type="radio" name="opt-type" value="Veg" checked ${!ctx.isOptInWindowOpen ? 'disabled' : ''}> 🥦 Veg Only</label>
+                            </div>
+                        `}
 
                         ${ctx.isOptInWindowOpen ? `<button class="btn" style="margin-top:12px; padding:8px;" onclick="saveStudentAttendance('${escapeAttr(docId)}')">Save Meal Choice</button>` : ''}
                     </div>`;
@@ -1531,7 +1543,8 @@
                 Object.values(messAttendance).forEach(a => {
                     if (a.eat === 'Yes') {
                         totalOpted++;
-                        if (a.type === 'NonVeg') totalNonVeg++; else totalVeg++;
+                        const effType = getEffectiveMealTypeForRecord(a, ctx);
+                        if (effType === 'NonVeg') totalNonVeg++; else totalVeg++;
                     }
                 });
 
@@ -1570,11 +1583,12 @@
                 } else {
                     sortedKeys.forEach(k => {
                         let item = messAttendance[k];
+                        const effType = getEffectiveMealTypeForRecord(item, ctx);
                         html += `
                             <div class="item-card" style="border-left-color:${item.eat === 'Yes' ? '#10b981' : '#ef4444'};">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <strong>Room ${escapeAttr(item.room)} - ${escapeAttr(item.name)}</strong>
-                                    <span class="badge ${item.eat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${escapeAttr(item.eat)} (${escapeAttr(item.type || 'Veg')})</span>
+                                    <span class="badge ${item.eat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${escapeAttr(item.eat)} (${escapeAttr(effType)})</span>
                                 </div>
                             </div>`;
                     });
@@ -1606,9 +1620,9 @@
             const ctx = getMealContext();
 
             const typeRadio = document.querySelector('input[name="opt-type"]:checked');
-            const prevRecord = messAttendance[docId] || {};
-            const typeVal = ctx.isChoiceDay ? (typeRadio ? typeRadio.value : 'Veg') : (prevRecord.type || 'Veg');
+            const typeVal = ctx.isChoiceDay ? (typeRadio ? typeRadio.value : 'Veg') : 'Veg';
 
+            const prevRecord = messAttendance[docId] || {};
             const updatedHistory = Object.assign({}, prevRecord.history || {});
             updatedHistory[ctx.targetDateKey] = eat;
 
