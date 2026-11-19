@@ -4,23 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Hostel - Management Portal</title>
-    
+
     <!-- PWA Manifest Link -->
-    <link rel="manifest" href="data:application/manifest+json;charset=utf-8,{
-        %22name%22: %22My Hostel Portal%22,
-        %22short_name%22: %22My Hostel%22,
-        %22start_url%22: %22./Index.html%22,
-        %22display%22: %22standalone%22,
-        %22background_color%22: %22#111827%22,
-        %22theme_color%22: %22#4f46e5%22,
-        %22icons%22: [
-            {
-                %22src%22: %22https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH%22,
-                %22sizes%22: %22512x512%22,
-                %22type%22: %22image/svg+xml%22
-            }
-        ]
-    }">
+    <link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22My%20Hostel%20Portal%22%2C%22short_name%22%3A%22My%20Hostel%22%2C%22start_url%22%3A%22.%2FIndex.html%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23111827%22%2C%22theme_color%22%3A%22%234f46e5%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fapi.dicebear.com%2F7.x%2Fidenticon%2Fsvg%3Fseed%3DMyHostelMH%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D">
 
     <style>
         :root {
@@ -455,8 +441,10 @@
         window.rtdbRemove = remove;
         window.rtdbGet = get;
         window.rtdbChild = child;
-        
-        if(window.initAppAfterFirebase) window.initAppAfterFirebase();
+
+        if (typeof window.initAppAfterFirebase === "function") {
+            window.initAppAfterFirebase();
+        }
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -606,8 +594,10 @@
     </div>
 
     <script>
+        const DEFAULT_TITLE = "My Hostel - Management Portal";
         let currentUser = null;
         let activeMealTab = "Lunch";
+        let editingFeeRoom = null;
 
         let notices = [];
         let complaints = [];
@@ -629,10 +619,11 @@
         let lastNoticeCount = -1;
         let lastStudentComplaintStatus = {};
 
-        // Track last read counts so badges clear when user opens the module
-        let lastReadNoticeCount = 0;
-        let lastReadPendingComplaints = 0;
-        let lastReadPendingOutpasses = 0;
+        let lastReadNoticeCount = parseInt(localStorage.getItem('myhostel_read_notices') || '0', 10) || 0;
+        let lastReadPendingComplaints = parseInt(localStorage.getItem('myhostel_read_complaints') || '0', 10) || 0;
+        let lastReadPendingOutpasses = parseInt(localStorage.getItem('myhostel_read_outpasses') || '0', 10) || 0;
+
+        let rtdbListenersStarted = false;
 
         const staffCodes = {
             "Chief Warden": "7854123",
@@ -642,15 +633,39 @@
             "Kitchen Mess Cook": "3214567"
         };
 
+        function resetRefreshState() {
+            document.title = DEFAULT_TITLE;
+            if ('clearAppBadge' in navigator) {
+                navigator.clearAppBadge().catch(() => {});
+            }
+        }
+
+        function saveReadCounts() {
+            localStorage.setItem('myhostel_read_notices', String(lastReadNoticeCount));
+            localStorage.setItem('myhostel_read_complaints', String(lastReadPendingComplaints));
+            localStorage.setItem('myhostel_read_outpasses', String(lastReadPendingOutpasses));
+        }
+
+        function escapeAttr(str) {
+            return String(str || "")
+                .replace(/&/g, "&amp;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+
         function requestNotificationPermission() {
-            if ("Notification" in window && Notification.permission !== "granted") {
-                Notification.requestPermission();
+            if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+                Notification.requestPermission().catch(() => {});
             }
         }
 
         function playNotificationSound() {
             try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextClass) return;
+                const audioCtx = new AudioContextClass();
                 const osc = audioCtx.createOscillator();
                 const gain = audioCtx.createGain();
                 osc.type = 'sine';
@@ -666,44 +681,66 @@
                 if ("vibrate" in navigator) {
                     navigator.vibrate([200, 100, 200]);
                 }
-            } catch(e) {}
+            } catch (e) {}
         }
 
-        function triggerSystemNotification(title, message) {
+        function triggerSystemNotification(title, message, isAlert = true) {
             playNotificationSound();
-            document.title = "🚨 [PENDING ALERT] - My Hostel";
+            if (isAlert) {
+                document.title = "🚨 [PENDING ALERT] - " + DEFAULT_TITLE;
+            }
             if ("Notification" in window && Notification.permission === "granted") {
-                new Notification(title, {
-                    body: message,
-                    icon: "https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH"
-                });
+                try {
+                    new Notification(title, {
+                        body: message,
+                        icon: "https://api.dicebear.com/7.x/identicon/svg?seed=MyHostelMH"
+                    });
+                } catch (e) {}
             }
         }
 
         window.initAppAfterFirebase = function() {
-            startRTDBListeners();
+            resetRefreshState();
+
+            if (!rtdbListenersStarted) {
+                rtdbListenersStarted = true;
+                startRTDBListeners();
+            }
             requestNotificationPermission();
-            
+
             const savedUser = localStorage.getItem('myhostel_active_user');
             if (savedUser) {
-                currentUser = JSON.parse(savedUser);
-                setupUserUI();
-                showScreen('dashboard-screen');
+                try {
+                    currentUser = JSON.parse(savedUser);
+                    setupUserUI();
+                    showScreen('dashboard-screen');
+                } catch (e) {
+                    localStorage.removeItem('myhostel_active_user');
+                }
             }
         };
+
+        resetRefreshState();
+        if (window.db && !rtdbListenersStarted) {
+            window.initAppAfterFirebase();
+        }
 
         function startRTDBListeners() {
             // 1. Notices Real-time Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "notices"), (snapshot) => {
                 const data = snapshot.val();
                 notices = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
-                
+
                 if (lastNoticeCount !== -1 && notices.length > lastNoticeCount) {
                     if (currentUser && currentUser.role === 'student') {
-                        triggerSystemNotification("📢 New Hostel Notice", "Admin posted a new notice!");
+                        triggerSystemNotification("📢 New Hostel Notice", "Admin posted a new notice!", false);
                     }
                 }
                 lastNoticeCount = notices.length;
+                if (notices.length < lastReadNoticeCount) {
+                    lastReadNoticeCount = notices.length;
+                    saveReadCounts();
+                }
                 updateNotificationBadges();
                 refreshActiveModuleByName('Notice Board');
             });
@@ -712,22 +749,25 @@
             window.rtdbOnValue(window.rtdbRef(window.db, "complaints"), (snapshot) => {
                 const data = snapshot.val();
                 complaints = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
-                
+
                 let currentPendingCount = complaints.filter(c => c.status === 'Pending').length;
                 if (lastComplaintCount !== -1 && currentPendingCount > lastComplaintCount) {
                     if (currentUser && currentUser.role === 'staff') {
-                        playNotificationSound();
-                        triggerSystemNotification("🚨 New Pending Complaint", "A student submitted a new complaint issue!");
+                        triggerSystemNotification("🚨 New Pending Complaint", "A student submitted a new complaint issue!", true);
                     }
                 }
                 lastComplaintCount = currentPendingCount;
+                if (currentPendingCount < lastReadPendingComplaints) {
+                    lastReadPendingComplaints = currentPendingCount;
+                    saveReadCounts();
+                }
 
                 if (currentUser && currentUser.role === 'student') {
                     complaints.forEach(c => {
-                        if (c.room === currentUser.room && c.name === currentUser.name) {
+                        if (String(c.room) === String(currentUser.room) && c.name === currentUser.name) {
                             let oldStatus = lastStudentComplaintStatus[c.firebaseId];
                             if (oldStatus && oldStatus === 'Pending' && c.status === 'Resolved') {
-                                triggerSystemNotification("✅ Complaint Resolved", "Your room complaint has been resolved!");
+                                triggerSystemNotification("✅ Complaint Resolved", "Your room complaint has been resolved!", false);
                             }
                             lastStudentComplaintStatus[c.firebaseId] = c.status;
                         }
@@ -743,15 +783,18 @@
             window.rtdbOnValue(window.rtdbRef(window.db, "outpasses"), (snapshot) => {
                 const data = snapshot.val();
                 outPasses = data ? Object.keys(data).map(key => ({ firebaseId: key, ...data[key] })) : [];
-                
+
                 let currentPendingOutpass = outPasses.filter(op => op.status === 'Pending').length;
                 if (lastOutpassCount !== -1 && currentPendingOutpass > lastOutpassCount) {
                     if (currentUser && currentUser.role === 'staff') {
-                        playNotificationSound();
-                        triggerSystemNotification("📝 New Pending Leave Request", "A student applied for a new leave pass!");
+                        triggerSystemNotification("📝 New Pending Leave Request", "A student applied for a new leave pass!", true);
                     }
                 }
                 lastOutpassCount = currentPendingOutpass;
+                if (currentPendingOutpass < lastReadPendingOutpasses) {
+                    lastReadPendingOutpasses = currentPendingOutpass;
+                    saveReadCounts();
+                }
 
                 updateNotificationBadges();
                 refreshActiveModuleByName('Out-Pass');
@@ -767,7 +810,7 @@
             // 5. Hostel Rules Real-time Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "rules"), (snapshot) => {
                 const data = snapshot.val();
-                if(data) {
+                if (data) {
                     hostelRules = Object.keys(data).map(key => ({ firebaseId: key, ...data[key] }));
                 } else {
                     initializeDefaultRules();
@@ -778,7 +821,7 @@
             // 6. Staff Directory Real-time Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "staff"), (snapshot) => {
                 const data = snapshot.val();
-                if(data) {
+                if (data) {
                     staffMembers = Object.keys(data).map(key => ({ firebaseId: key, ...data[key] }));
                 } else {
                     initializeDefaultStaff();
@@ -806,7 +849,7 @@
             // 10. Mess Menu Real-time Listener
             window.rtdbOnValue(window.rtdbRef(window.db, "settings/messMenu"), (snapshot) => {
                 const data = snapshot.val();
-                if(data) {
+                if (data) {
                     messSchedule = data;
                 } else {
                     initializeDefaultMess();
@@ -826,16 +869,21 @@
             let actualPendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
             let actualTotalNotices = notices.length;
 
-            // Compute unread by subtracting what user has already viewed/opened
             let displayPendingComplaints = Math.max(0, actualPendingComplaints - lastReadPendingComplaints);
             let displayPendingOutpasses = Math.max(0, actualPendingOutpasses - lastReadPendingOutpasses);
             let displayTotalNotices = Math.max(0, actualTotalNotices - lastReadNoticeCount);
-            
-            let totalUnread = (currentUser && currentUser.role === 'staff') ? (displayPendingComplaints + displayPendingOutpasses) : displayTotalNotices;
+
+            let totalUnread = (currentUser && currentUser.role === 'staff')
+                ? (displayPendingComplaints + displayPendingOutpasses)
+                : (currentUser && currentUser.role === 'student' ? displayTotalNotices : 0);
+
+            if (totalUnread === 0) {
+                resetRefreshState();
+            }
 
             let cBadge = document.getElementById('card-badge-complaint');
-            if(cBadge) {
-                if(displayPendingComplaints > 0) {
+            if (cBadge) {
+                if (displayPendingComplaints > 0) {
                     cBadge.innerText = displayPendingComplaints;
                     cBadge.style.display = 'inline-block';
                 } else {
@@ -844,8 +892,8 @@
             }
 
             let oBadge = document.getElementById('card-badge-outpass');
-            if(oBadge) {
-                if(displayPendingOutpasses > 0) {
+            if (oBadge) {
+                if (displayPendingOutpasses > 0) {
                     oBadge.innerText = displayPendingOutpasses;
                     oBadge.style.display = 'inline-block';
                 } else {
@@ -854,8 +902,8 @@
             }
 
             let nBadge = document.getElementById('card-badge-notice');
-            if(nBadge) {
-                if(currentUser && currentUser.role === 'student' && displayTotalNotices > 0) {
+            if (nBadge) {
+                if (currentUser && currentUser.role === 'student' && displayTotalNotices > 0) {
                     nBadge.innerText = displayTotalNotices;
                     nBadge.style.display = 'inline-block';
                 } else {
@@ -864,8 +912,8 @@
             }
 
             let navBadge = document.getElementById('mh-nav-badge');
-            if(navBadge) {
-                if(totalUnread > 0) {
+            if (navBadge) {
+                if (totalUnread > 0) {
                     navBadge.innerText = totalUnread;
                     navBadge.style.display = 'inline-block';
                 } else {
@@ -873,29 +921,25 @@
                 }
             }
 
-            if ('setAppBadge' in navigator) {
+            if ('setAppBadge' in navigator && totalUnread > 0) {
                 try {
-                    if (totalUnread > 0) {
-                        navigator.setAppBadge(totalUnread).catch(err => {});
-                    } else {
-                        navigator.clearAppBadge().catch(err => {});
-                    }
+                    navigator.setAppBadge(totalUnread).catch(() => {});
                 } catch (e) {}
             }
         }
 
         function refreshActiveModuleByName(keyword) {
-            if(document.getElementById('modal-overlay').style.display === 'flex') {
+            if (document.getElementById('modal-overlay').style.display === 'flex') {
                 let activeTitle = document.querySelector('#modal-content h2');
-                if(activeTitle && activeTitle.innerText.includes(keyword)) {
-                    if(keyword.includes('Notice')) openModule('notice');
-                    else if(keyword.includes('Complaint')) openModule('complaint');
-                    else if(keyword.includes('Out-Pass')) openModule('outpass');
-                    else if(keyword.includes('Room Allocation')) openModule('allocation');
-                    else if(keyword.includes('Hostel Rules')) openModule('rules');
-                    else if(keyword.includes('Staff Directory')) openModule('staff');
-                    else if(keyword.includes('Fee')) openModule('fee');
-                    else if(keyword.includes('Mess')) openModule('mess');
+                if (activeTitle && activeTitle.innerText.includes(keyword)) {
+                    if (keyword.includes('Notice')) openModule('notice');
+                    else if (keyword.includes('Complaint')) openModule('complaint');
+                    else if (keyword.includes('Out-Pass')) openModule('outpass');
+                    else if (keyword.includes('Room Allocation')) openModule('allocation');
+                    else if (keyword.includes('Hostel Rules')) openModule('rules');
+                    else if (keyword.includes('Staff Directory')) openModule('staff');
+                    else if (keyword.includes('Fee')) openModule('fee');
+                    else if (keyword.includes('Mess')) openModule('mess');
                 }
             }
         }
@@ -907,7 +951,7 @@
                 { id: 3, title: "Guests Policy", content: "Unauthorized guests are strictly prohibited inside the residential rooms." },
                 { id: 4, title: "Electricity Conservation", content: "Switch off lights and fans when leaving the room to save electricity." }
             ];
-            for(let r of defaults) { 
+            for (let r of defaults) {
                 const newRef = window.rtdbPush(window.rtdbRef(window.db, "rules"));
                 await window.rtdbSet(newRef, r);
             }
@@ -921,7 +965,7 @@
                 { id: 4, role: "Hostel Administrative", name: "Office Desk", phone: "0672422001" },
                 { id: 5, role: "Kitchen Mess Cook", name: "Chef Suresh", phone: "9861234567" }
             ];
-            for(let s of defaults) { 
+            for (let s of defaults) {
                 const newRef = window.rtdbPush(window.rtdbRef(window.db, "staff"));
                 await window.rtdbSet(newRef, s);
             }
@@ -956,12 +1000,15 @@
             const twentyFourHours = 24 * 60 * 60 * 1000;
             complaints.forEach(async c => {
                 if (c.status === 'Resolved' && c.resolvedAt && (now - c.resolvedAt) >= twentyFourHours) {
-                    await window.rtdbRemove(window.rtdbRef(window.db, `complaints/${c.firebaseId}`));
+                    try {
+                        await window.rtdbRemove(window.rtdbRef(window.db, `complaints/${c.firebaseId}`));
+                    } catch (e) {}
                 }
             });
         }
 
         function setupUserUI() {
+            if (!currentUser) return;
             document.getElementById('header-user-badge').style.display = 'flex';
             if (currentUser.role === 'student') {
                 document.getElementById('header-user-info').innerText = `${currentUser.name} (Rm: ${currentUser.room})`;
@@ -985,10 +1032,10 @@
             document.getElementById(screenId).style.display = 'block';
         }
 
-        function updateRooms(floorId, roomId) {
+        function updateRooms(floorId, roomId, selectedRoom = "") {
             const floor = document.getElementById(floorId).value;
             const roomSelect = document.getElementById(roomId);
-            roomSelect.innerHTML = '<option value="">-- Choose Floor --</option>';
+            roomSelect.innerHTML = '<option value="">-- Choose Room --</option>';
             let start = 0, end = 0;
             if (floor === 'ground') { start = 101; end = 135; }
             else if (floor === 'first') { start = 201; end = 235; }
@@ -997,8 +1044,9 @@
             if (start && end) {
                 for (let i = start; i <= end; i++) {
                     let opt = document.createElement('option');
-                    opt.value = i;
+                    opt.value = String(i);
                     opt.textContent = 'Room No: ' + i;
+                    if (String(i) === String(selectedRoom)) opt.selected = true;
                     roomSelect.appendChild(opt);
                 }
             }
@@ -1011,20 +1059,22 @@
             const code = document.getElementById('stu-code').value.trim();
 
             if (!name || !phone || !room || !code) return alert("Please fill all details.");
-            if (code !== room + "0") return alert("Invalid room verification code!");
+            if (code !== String(room) + "0") return alert("Invalid room verification code!");
 
             let studentKey = phone.replace(/[^0-9]/g, '');
+            if (!studentKey) return alert("Please enter a valid contact number.");
+
             if (blockedUsers[studentKey] && blockedUsers[studentKey].blocked) {
                 return alert("Access Denied: Your account has been blocked by the hostel admin.");
             }
 
-            currentUser = { role: 'student', name: name, phone: phone, room: room };
+            currentUser = { role: 'student', name: name, phone: phone, room: String(room) };
             localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser));
 
             await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${studentKey}`), {
                 name: name,
                 phone: phone,
-                room: room,
+                room: String(room),
                 lastLogin: Date.now()
             });
 
@@ -1053,16 +1103,21 @@
 
         function logoutSession() {
             localStorage.removeItem('myhostel_active_user');
+            localStorage.removeItem('myhostel_read_notices');
+            localStorage.removeItem('myhostel_read_complaints');
+            localStorage.removeItem('myhostel_read_outpasses');
+            lastReadNoticeCount = 0;
+            lastReadPendingComplaints = 0;
+            lastReadPendingOutpasses = 0;
             currentUser = null;
-            if ('clearAppBadge' in navigator) {
-                navigator.clearAppBadge().catch(e => {});
-            }
+            resetRefreshState();
             document.getElementById('header-user-badge').style.display = 'none';
             showScreen('role-screen');
         }
 
         function closeModal() {
             document.getElementById('modal-overlay').style.display = 'none';
+            editingFeeRoom = null;
         }
 
         function handleBackdropClick(e) {
@@ -1074,7 +1129,7 @@
         function openDeveloperProfile() {
             const content = document.getElementById('modal-content');
             document.getElementById('modal-overlay').style.display = 'flex';
-            
+
             let isStaffAdmin = currentUser && currentUser.role === 'staff';
 
             let html = `
@@ -1082,7 +1137,7 @@
                     <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Piyush" alt="Piyush Kumar Sahoo" class="dev-avatar">
                     <h2 style="color:var(--primary);">Piyush Kumar Sahoo</h2>
                     <p style="color:#6b7280; font-weight:bold;">Lead Developer & Creator</p>
-                    
+
                     <div class="dev-info-box">
                         <p><strong>🎓 Education:</strong> Plus Three (+3) Student</p>
                         <p style="margin-top:6px;"><strong>🏫 College:</strong> NC Autonomous College</p>
@@ -1107,14 +1162,14 @@
                             <div class="item-card" style="border-left-color:${isBlocked ? '#ef4444' : '#10b981'}; text-align:left;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <div>
-                                        <strong>👤 ${st.name}</strong> (Room ${st.room})
-                                        <br><small style="color:#6b7280;">📞 ${st.phone}</small>
+                                        <strong>👤 ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)})
+                                        <br><small style="color:#6b7280;">📞 ${escapeAttr(st.phone)}</small>
                                     </div>
                                     <div>
                                         <span class="badge ${isBlocked ? 'badge-rejected' : 'badge-resolved'}">${isBlocked ? 'Blocked' : 'Active'}</span>
-                                        ${isBlocked ? 
-                                            `<button onclick="toggleBlockStudent('${k}', false)" style="background:#10b981; color:white; border:none; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:11px; margin-left:5px;">Unblock</button>` : 
-                                            `<button onclick="toggleBlockStudent('${k}', true)" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:11px; margin-left:5px;">Block</button>`
+                                        ${isBlocked ?
+                                            `<button onclick="toggleBlockStudent('${escapeAttr(k)}', false)" style="background:#10b981; color:white; border:none; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:11px; margin-left:5px;">Unblock</button>` :
+                                            `<button onclick="toggleBlockStudent('${escapeAttr(k)}', true)" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:6px; cursor:pointer; font-size:11px; margin-left:5px;">Block</button>`
                                         }
                                     </div>
                                 </div>
@@ -1140,13 +1195,17 @@
         }
 
         function openModule(moduleKey) {
-            // Clear notification badge count when user opens the respective module
+            if (!currentUser) return;
+
             if (moduleKey === 'notice') {
                 lastReadNoticeCount = notices.length;
+                saveReadCounts();
             } else if (moduleKey === 'complaint') {
                 lastReadPendingComplaints = complaints.filter(c => c.status === 'Pending').length;
+                saveReadCounts();
             } else if (moduleKey === 'outpass') {
                 lastReadPendingOutpasses = outPasses.filter(op => op.status === 'Pending').length;
+                saveReadCounts();
             }
             updateNotificationBadges();
 
@@ -1165,17 +1224,17 @@
                             <button class="btn" onclick="addNotice()">Post Notice</button>
                         </div>`;
                 }
-                
+
                 if (notices.length === 0) {
                     html += `<p style="color:#6b7280; font-size:13px; text-align:center; padding:20px;">No notices posted yet.</p>`;
                 } else {
                     notices.forEach(n => {
                         html += `
                             <div class="item-card">
-                                <h4 style="color:var(--primary);">${n.title}</h4>
-                                <small style="color:#6b7280;">Date: ${n.date}</small>
-                                <p style="margin-top:5px;">${n.content}</p>
-                                ${canEdit ? `<button onclick="deleteNotice('${n.firebaseId}')" style="color:red; background:none; border:none; cursor:pointer; margin-top:8px;">🗑️ Delete</button>` : ''}
+                                <h4 style="color:var(--primary);">${escapeAttr(n.title)}</h4>
+                                <small style="color:#6b7280;">Date: ${escapeAttr(n.date)}</small>
+                                <p style="margin-top:5px;">${escapeAttr(n.content)}</p>
+                                ${canEdit ? `<button onclick="deleteNotice('${escapeAttr(n.firebaseId)}')" style="color:red; background:none; border:none; cursor:pointer; margin-top:8px;">🗑️ Delete</button>` : ''}
                             </div>`;
                     });
                 }
@@ -1193,7 +1252,7 @@
         function renderMessMenu() {
             const content = document.getElementById('modal-content');
             let isStaff = currentUser.role === 'staff';
-            
+
             let now = new Date();
             let currentHour = now.getHours();
             let isOptInWindowOpen = currentHour >= 18 || currentHour < 6;
@@ -1207,20 +1266,21 @@
 
             let html = `
                 <h2>🍽️ Mess Menu & Daily Attendance</h2><hr style="margin: 10px 0;">
-                
-                <div style="display:flex; gap:10px; margin-bottom:15px;">
+
+                <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
                     <button class="tab-btn ${activeMealTab === 'Lunch' ? 'active' : ''}" onclick="switchMealTab('Lunch')">☀️ Lunch (12:30 PM - 2:00 PM)</button>
                     <button class="tab-btn ${activeMealTab === 'Dinner' ? 'active' : ''}" onclick="switchMealTab('Dinner')">🌙 Dinner (8:00 PM - 9:30 PM)</button>
                 </div>`;
 
             if (currentUser.role === 'student') {
-                let docId = `${currentUser.room}_${currentUser.name.replace(/\s+/g, '')}`;
+                let safeName = currentUser.name.replace(/[^a-zA-Z0-9]/g, '');
+                let docId = `${currentUser.room}_${safeName || 'Student'}`;
                 let currentAtt = messAttendance[docId] || { eat: 'Yes', type: 'Veg' };
                 let headerTitle = isOptInWindowOpen ? `Tomorrow's Meal Opt-In (${targetDayName})` : `Today's Meal Opt-In (${targetDayName})`;
 
                 html += `
                     <div style="background: ${isOptInWindowOpen ? '#d1fae5' : '#fee2e2'}; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                             <h4>🍱 ${headerTitle}</h4>
                             <span class="badge ${isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${isOptInWindowOpen ? '🟢 WINDOW OPEN (6PM - 6AM)' : '🔒 LOCKED (AFTER 6 AM)'}</span>
                         </div>
@@ -1242,7 +1302,7 @@
                             </div>
                         ` : ''}
 
-                        ${isOptInWindowOpen ? `<button class="btn" style="margin-top:12px; padding:8px;" onclick="saveStudentAttendance('${docId}')">Save Meal Choice</button>` : ''}
+                        ${isOptInWindowOpen ? `<button class="btn" style="margin-top:12px; padding:8px;" onclick="saveStudentAttendance('${escapeAttr(docId)}')">Save Meal Choice</button>` : ''}
                     </div>`;
             }
 
@@ -1257,14 +1317,14 @@
 
                 html += `
                     <div style="background: #e0e7ff; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                             <h4>📊 Kitchen Live Count Summary</h4>
-                            <div>
+                            <div style="display:flex; gap:6px;">
                                 <button onclick="window.print()" style="background:#4f46e5; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">🖨️ Print List</button>
                                 <button onclick="shareWhatsAppSummary(${totalOpted}, ${totalVeg}, ${totalNonVeg})" style="background:#10b981; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">📲 WhatsApp</button>
                             </div>
                         </div>
-                        <div style="display:flex; gap:15px; margin-top:10px; font-weight:bold; font-size:14px;">
+                        <div style="display:flex; gap:15px; margin-top:10px; font-weight:bold; font-size:14px; flex-wrap:wrap;">
                             <span>Total Eating: ${totalOpted}</span> |
                             <span style="color:#059669;">🥦 Veg: ${totalVeg}</span> |
                             <span style="color:#dc2626;">🍗 Non-Veg: ${totalNonVeg}</span>
@@ -1274,9 +1334,9 @@
                     <h4>📋 Sorted Attendance List (Room-wise)</h4>
                     <div style="margin-top:10px;">`;
 
-                let sortedKeys = Object.keys(messAttendance).sort((a,b) => {
-                    let rA = parseInt(messAttendance[a].room) || 0;
-                    let rB = parseInt(messAttendance[b].room) || 0;
+                let sortedKeys = Object.keys(messAttendance).sort((a, b) => {
+                    let rA = parseInt(messAttendance[a].room, 10) || 0;
+                    let rB = parseInt(messAttendance[b].room, 10) || 0;
                     return rA - rB;
                 });
 
@@ -1288,8 +1348,8 @@
                         html += `
                             <div class="item-card" style="border-left-color:${item.eat === 'Yes' ? '#10b981' : '#ef4444'};">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                                    <strong>Room ${item.room} - ${item.name}</strong>
-                                    <span class="badge ${item.eat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${item.eat} (${item.type || 'Veg'})</span>
+                                    <strong>Room ${escapeAttr(item.room)} - ${escapeAttr(item.name)}</strong>
+                                    <span class="badge ${item.eat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${escapeAttr(item.eat)} (${escapeAttr(item.type || 'Veg')})</span>
                                 </div>
                             </div>`;
                     });
@@ -1300,14 +1360,14 @@
             html += `<h4>Weekly Schedule</h4><div style="margin-top:10px;">`;
             let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
             days.forEach(day => {
-                let menuText = messSchedule[activeMealTab] ? (messSchedule[activeMealTab][day] || "") : "";
+                let menuText = (messSchedule[activeMealTab] && messSchedule[activeMealTab][day]) ? messSchedule[activeMealTab][day] : "";
                 html += `
                     <div class="item-card">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
                             <strong>📅 ${day} (${activeMealTab})</strong>
                             ${isStaff ? `<button onclick="editMessMenu('${activeMealTab}', '${day}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>` : ''}
                         </div>
-                        <p style="margin-top:6px; color:#374151;">${menuText}</p>
+                        <p style="margin-top:6px; color:#374151;">${escapeAttr(menuText)}</p>
                     </div>`;
             });
             html += `</div>`;
@@ -1315,12 +1375,14 @@
         }
 
         async function saveStudentAttendance(docId) {
-            const eat = document.getElementById('opt-eat').value;
+            const eatEl = document.getElementById('opt-eat');
+            if (!eatEl) return;
+            const eat = eatEl.value;
             const typeRadio = document.querySelector('input[name="opt-type"]:checked');
             const typeVal = typeRadio ? typeRadio.value : 'Veg';
 
             await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${docId}`), {
-                room: currentUser.room,
+                room: String(currentUser.room),
                 name: currentUser.name,
                 eat: eat,
                 type: typeVal,
@@ -1336,9 +1398,10 @@
         }
 
         async function editMessMenu(mealType, day) {
-            let currentText = messSchedule[mealType][day];
+            let currentText = (messSchedule[mealType] && messSchedule[mealType][day]) ? messSchedule[mealType][day] : "";
             let newText = prompt(`Edit ${mealType} Menu for ${day}:`, currentText);
             if (newText !== null && newText.trim() !== "") {
+                if (!messSchedule[mealType]) messSchedule[mealType] = {};
                 messSchedule[mealType][day] = newText.trim();
                 await window.rtdbSet(window.rtdbRef(window.db, "settings/messMenu"), messSchedule);
                 renderMessMenu();
@@ -1347,23 +1410,23 @@
 
         function shareWhatsAppSummary(total, veg, nonveg) {
             let text = `*My Hostel - Attendance Summary*%0A` +
-                        `-----------------------------------%0A` +
-                        `🍱 *Total Meal Count:* ${total}%0A` +
-                        `🥦 *Veg Count:* ${veg}%0A` +
-                        `🍗 *Non-Veg Count:* ${nonveg}%0A` +
-                        `-----------------------------------%0A` +
-                        `_Generated by My Hostel Management Portal_`;
+                       `-----------------------------------%0A` +
+                       `🍱 *Total Meal Count:* ${total}%0A` +
+                       `🥦 *Veg Count:* ${veg}%0A` +
+                       `🍗 *Non-Veg Count:* ${nonveg}%0A` +
+                       `-----------------------------------%0A` +
+                       `_Generated by My Hostel Management Portal_`;
             window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
         }
 
         function renderComplaintBox() {
             const content = document.getElementById('modal-content');
             let html = `<h2>🛠️ Complaint Box</h2><hr style="margin: 10px 0;">`;
-            
+
             if (currentUser.role === 'student') {
                 html += `
                     <div style="background: #fee2e2; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                        <h4>Submit Complaint (Room ${currentUser.room})</h4>
+                        <h4>Submit Complaint (Room ${escapeAttr(currentUser.room)})</h4>
                         <textarea id="cmp-text" placeholder="Describe the issue in your room..." style="width:100%; margin:8px 0; padding:8px;"></textarea>
                         <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:5px;">Attach Photo (Optional):</label>
                         <input type="file" id="cmp-img" accept="image/*" capture="environment" style="margin-bottom:10px;">
@@ -1371,7 +1434,9 @@
                     </div>`;
             }
 
-            let list = currentUser.role === 'student' ? complaints.filter(c => c.room === currentUser.room) : complaints;
+            let list = currentUser.role === 'student'
+                ? complaints.filter(c => String(c.room) === String(currentUser.room))
+                : complaints;
 
             if (list.length === 0) {
                 html += `<p style="color:#6b7280; font-size:13px;">No active complaints found.</p>`;
@@ -1389,15 +1454,15 @@
                     html += `
                         <div class="item-card">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <strong>Room ${c.room} - ${c.name}</strong>
-                                <span class="badge ${isResolved ? 'badge-resolved' : 'badge-pending'}">${c.status} ${remainingHours}</span>
+                                <strong>Room ${escapeAttr(c.room)} - ${escapeAttr(c.name)}</strong>
+                                <span class="badge ${isResolved ? 'badge-resolved' : 'badge-pending'}">${escapeAttr(c.status)} ${remainingHours}</span>
                             </div>
-                            <p style="margin: 8px 0;">${c.text}</p>
-                            ${c.image ? `<img src="${c.image}" style="width:100%; max-height:150px; object-fit:cover; border-radius:8px; margin-top:5px;" onclick="enlargeImage('${c.image}')">` : ''}
-                            
+                            <p style="margin: 8px 0;">${escapeAttr(c.text)}</p>
+                            ${c.image ? `<img src="${c.image}" style="width:100%; max-height:150px; object-fit:cover; border-radius:8px; margin-top:5px; cursor:pointer;" onclick="enlargeImage(this.src)">` : ''}
+
                             <div style="margin-top:10px; display:flex; gap:10px;">
-                                ${currentUser.role === 'staff' && !isResolved ? `<button class="btn" style="padding:6px; background:#10b981;" onclick="resolveComplaint('${c.firebaseId}')">Mark Resolved</button>` : ''}
-                                ${currentUser.role === 'student' && isResolved ? `<button class="btn" style="padding:6px; background:#3b82f6;" onclick="resendComplaint('${c.firebaseId}')">🔄 Resend Complaint</button>` : ''}
+                                ${currentUser.role === 'staff' && !isResolved ? `<button class="btn" style="padding:6px; background:#10b981;" onclick="resolveComplaint('${escapeAttr(c.firebaseId)}')">Mark Resolved</button>` : ''}
+                                ${currentUser.role === 'student' && isResolved ? `<button class="btn" style="padding:6px; background:#3b82f6;" onclick="resendComplaint('${escapeAttr(c.firebaseId)}')">🔄 Resend Complaint</button>` : ''}
                             </div>
                         </div>`;
                 });
@@ -1457,7 +1522,7 @@
 
                 const newRef = window.rtdbPush(window.rtdbRef(window.db, "complaints"));
                 await window.rtdbSet(newRef, {
-                    room: currentUser.room,
+                    room: String(currentUser.room),
                     name: currentUser.name,
                     text: text,
                     status: "Pending",
@@ -1466,7 +1531,7 @@
                     createdAt: Date.now()
                 });
 
-                triggerSystemNotification("📢 Complaint Sent", "Your complaint has been sent to staff.");
+                playNotificationSound();
                 alert("Complaint submitted successfully!");
                 renderComplaintBox();
             } catch (err) {
@@ -1479,7 +1544,7 @@
 
         async function resolveComplaint(firebaseId) {
             await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${firebaseId}`), { status: "Resolved", resolvedAt: Date.now() });
-            triggerSystemNotification("✅ Complaint Resolved", "Complaint status updated to Resolved.");
+            triggerSystemNotification("✅ Complaint Resolved", "Complaint status updated to Resolved.", false);
         }
 
         async function resendComplaint(firebaseId) {
@@ -1509,15 +1574,15 @@
                     html += `
                         <div class="item-card">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <strong style="color:var(--primary);">${idx + 1}. ${r.title}</strong>
+                                <strong style="color:var(--primary);">${idx + 1}. ${escapeAttr(r.title)}</strong>
                                 ${isStaff ? `
-                                    <div>
-                                        <button onclick="editHostelRule('${r.firebaseId}', '${r.title.replace(/'/g, "\\'")}', '${r.content.replace(/'/g, "\\'")}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
-                                        <button onclick="deleteHostelRule('${r.firebaseId}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
+                                    <div style="display:flex; gap:6px;">
+                                        <button onclick="editHostelRuleById('${escapeAttr(r.firebaseId)}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
+                                        <button onclick="deleteHostelRule('${escapeAttr(r.firebaseId)}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
                                     </div>
                                 ` : ''}
                             </div>
-                            <p style="margin-top:6px; color:#374151;">${r.content}</p>
+                            <p style="margin-top:6px; color:#374151;">${escapeAttr(r.content)}</p>
                         </div>`;
                 });
             }
@@ -1534,12 +1599,16 @@
             renderHostelRules();
         }
 
-        async function editHostelRule(firebaseId, curTitle, curContent) {
-            let newTitle = prompt("Edit Rule Title:", curTitle);
-            let newContent = prompt("Edit Rule Description:", curContent);
-            if (newTitle !== null && newContent !== null) {
+        async function editHostelRuleById(firebaseId) {
+            const rule = hostelRules.find(r => r.firebaseId === firebaseId);
+            if (!rule) return;
+            let newTitle = prompt("Edit Rule Title:", rule.title);
+            if (newTitle === null) return;
+            let newContent = prompt("Edit Rule Description:", rule.content);
+            if (newContent !== null) {
                 await window.rtdbUpdate(window.rtdbRef(window.db, `rules/${firebaseId}`), {
-                    title: newTitle.trim(), content: newContent.trim()
+                    title: newTitle.trim() || rule.title,
+                    content: newContent.trim() || rule.content
                 });
             }
         }
@@ -1575,21 +1644,25 @@
             }
 
             html += `<h4>Allocated Rooms List</h4><div style="margin-top:10px;">`;
-            roomAllocations.forEach((ra) => {
-                html += `
-                    <div class="item-card">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <strong>Room ${ra.room} (${ra.status})</strong>
-                            ${isStaff ? `
-                                <div>
-                                    <button onclick="editAllocation('${ra.firebaseId}', '${ra.student1}', '${ra.student2}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
-                                    <button onclick="deleteAllocation('${ra.firebaseId}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
-                                </div>
-                            ` : ''}
-                        </div>
-                        <p style="margin-top:6px; font-size:13px;">👤 <strong>Student 1:</strong> ${ra.student1} | 👤 <strong>Student 2:</strong> ${ra.student2}</p>
-                    </div>`;
-            });
+            if (roomAllocations.length === 0) {
+                html += `<p style="color:#6b7280; font-size:13px;">No room allocations added yet.</p>`;
+            } else {
+                roomAllocations.forEach((ra) => {
+                    html += `
+                        <div class="item-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>
+                                ${isStaff ? `
+                                    <div style="display:flex; gap:6px;">
+                                        <button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
+                                        <button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <p style="margin-top:6px; font-size:13px;">👤 <strong>Student 1:</strong> ${escapeAttr(ra.student1)} | 👤 <strong>Student 2:</strong> ${escapeAttr(ra.student2)}</p>
+                        </div>`;
+                });
+            }
             html += `</div>`;
             content.innerHTML = html;
         }
@@ -1602,7 +1675,7 @@
             if (!rm || !s1) return alert("Please choose a room and enter student name!");
 
             let statusVal = (s2 && s2 !== "Vacant") ? "Fully Occupied" : "Partially Occupied";
-            let existing = roomAllocations.find(r => r.room === rm);
+            let existing = roomAllocations.find(r => String(r.room) === String(rm));
 
             if (existing) {
                 await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${existing.firebaseId}`), {
@@ -1611,21 +1684,27 @@
             } else {
                 const newRef = window.rtdbPush(window.rtdbRef(window.db, "allocations"));
                 await window.rtdbSet(newRef, {
-                    room: rm, student1: s1, student2: s2, status: statusVal
+                    room: String(rm), student1: s1, student2: s2, status: statusVal
                 });
             }
+            alert("Room allocation saved!");
             renderRoomAllocation();
         }
 
-        async function editAllocation(firebaseId, curS1, curS2) {
-            let n1 = prompt("Edit Student 1 Name:", curS1);
-            let n2 = prompt("Edit Student 2 Name:", curS2);
-            if (n1 !== null) {
-                let statusVal = (n2 && n2.trim() && n2.trim() !== "Vacant") ? "Fully Occupied" : "Partially Occupied";
-                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${firebaseId}`), {
-                    student1: n1.trim(), student2: (n2 && n2.trim()) ? n2.trim() : "Vacant", status: statusVal
-                });
-            }
+        async function editAllocationById(firebaseId) {
+            const alloc = roomAllocations.find(r => r.firebaseId === firebaseId);
+            if (!alloc) return;
+            let n1 = prompt("Edit Student 1 Name:", alloc.student1);
+            if (n1 === null) return;
+            let n2 = prompt("Edit Student 2 Name:", alloc.student2);
+            if (n2 === null) return;
+
+            let cleanN1 = n1.trim() || alloc.student1;
+            let cleanN2 = n2.trim() || "Vacant";
+            let statusVal = (cleanN2 !== "Vacant") ? "Fully Occupied" : "Partially Occupied";
+            await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${firebaseId}`), {
+                student1: cleanN1, student2: cleanN2, status: statusVal
+            });
         }
 
         async function deleteAllocation(firebaseId) {
@@ -1641,11 +1720,11 @@
                 let myFee = feeRecords[currentUser.room] || { name: currentUser.name, status: "Pending", annualFee: "₹45,000", messDues: "₹1,200" };
                 html += `
                     <div class="item-card" style="border-left-color: #10b981;">
-                        <h3>Private Record: Room ${currentUser.room}</h3>
-                        <p style="margin-top:8px;"><strong>Student Name:</strong> ${myFee.name || currentUser.name}</p>
-                        <p><strong>Annual Fee:</strong> ${myFee.annualFee}</p>
-                        <p><strong>Mess Dues:</strong> ${myFee.messDues}</p>
-                        <p style="margin-top:8px;"><strong>Payment Status:</strong> <span class="badge ${myFee.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${myFee.status}</span></p>
+                        <h3>Private Record: Room ${escapeAttr(currentUser.room)}</h3>
+                        <p style="margin-top:8px;"><strong>Student Name:</strong> ${escapeAttr(myFee.name || currentUser.name)}</p>
+                        <p><strong>Annual Fee:</strong> ${escapeAttr(myFee.annualFee)}</p>
+                        <p><strong>Mess Dues:</strong> ${escapeAttr(myFee.messDues)}</p>
+                        <p style="margin-top:8px;"><strong>Payment Status:</strong> <span class="badge ${myFee.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(myFee.status)}</span></p>
                     </div>`;
             } else {
                 html += `
@@ -1676,28 +1755,34 @@
 
                     <h4>All Registered Fee Records</h4><div style="margin-top:10px;">`;
 
-                Object.keys(feeRecords).forEach(rm => {
-                    let rec = feeRecords[rm];
-                    html += `
-                        <div class="item-card">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <strong>Room ${rm} - ${rec.name}</strong>
-                                <span class="badge ${rec.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${rec.status}</span>
-                            </div>
-                            <p style="margin-top:4px; font-size:13px;">Annual Fee: ${rec.annualFee} | Mess Dues: ${rec.messDues}</p>
-                            <div style="margin-top:8px; display:flex; gap:10px;">
-                                <button onclick="editFeeRecord('${rm}')" style="background:#3b82f6; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
-                                <button onclick="deleteFeeRecord('${rm}')" style="background:#ef4444; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
-                            </div>
-                        </div>`;
-                });
+                let feeKeys = Object.keys(feeRecords);
+                if (feeKeys.length === 0) {
+                    html += `<p style="color:#6b7280; font-size:13px;">No fee records found.</p>`;
+                } else {
+                    feeKeys.forEach(rm => {
+                        let rec = feeRecords[rm];
+                        html += `
+                            <div class="item-card">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <strong>Room ${escapeAttr(rm)} - ${escapeAttr(rec.name)}</strong>
+                                    <span class="badge ${rec.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(rec.status)}</span>
+                                </div>
+                                <p style="margin-top:4px; font-size:13px;">Annual Fee: ${escapeAttr(rec.annualFee)} | Mess Dues: ${escapeAttr(rec.messDues)}</p>
+                                <div style="margin-top:8px; display:flex; gap:10px;">
+                                    <button onclick="editFeeRecord('${escapeAttr(rm)}')" style="background:#3b82f6; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">✏️ Edit</button>
+                                    <button onclick="deleteFeeRecord('${escapeAttr(rm)}')" style="background:#ef4444; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️ Delete</button>
+                                </div>
+                            </div>`;
+                    });
+                }
                 html += `</div>`;
             }
             content.innerHTML = html;
         }
 
         async function saveFeeRecord() {
-            const room = document.getElementById('staff-fee-room').value;
+            const roomSelect = document.getElementById('staff-fee-room');
+            const room = (roomSelect && roomSelect.value) ? roomSelect.value : editingFeeRoom;
             const name = document.getElementById('staff-stu-name').value.trim();
             const annual = document.getElementById('staff-annual-fee').value.trim();
             const mess = document.getElementById('staff-mess-dues').value.trim();
@@ -1708,6 +1793,7 @@
             await window.rtdbSet(window.rtdbRef(window.db, `fees/${room}`), {
                 name: name, annualFee: annual || "₹45,000", messDues: mess || "₹0", status: status
             });
+            editingFeeRoom = null;
             alert(`Fee record saved for Room ${room}`);
             renderFeePayments();
         }
@@ -1715,15 +1801,29 @@
         function editFeeRecord(rm) {
             let rec = feeRecords[rm];
             if (!rec) return;
-            document.getElementById('staff-stu-name').value = rec.name;
-            document.getElementById('staff-annual-fee').value = rec.annualFee;
-            document.getElementById('staff-mess-dues').value = rec.messDues;
-            document.getElementById('staff-fee-status').value = rec.status;
+            editingFeeRoom = String(rm);
+            let rmNum = parseInt(rm, 10);
+            let floorVal = "";
+            if (rmNum >= 101 && rmNum <= 135) floorVal = "ground";
+            else if (rmNum >= 201 && rmNum <= 235) floorVal = "first";
+            else if (rmNum >= 301 && rmNum <= 335) floorVal = "second";
+
+            let floorEl = document.getElementById('staff-fee-floor');
+            if (floorEl && floorVal) {
+                floorEl.value = floorVal;
+                updateRooms('staff-fee-floor', 'staff-fee-room', rm);
+            }
+
+            document.getElementById('staff-stu-name').value = rec.name || "";
+            document.getElementById('staff-annual-fee').value = rec.annualFee || "₹45,000";
+            document.getElementById('staff-mess-dues').value = rec.messDues || "₹0";
+            document.getElementById('staff-fee-status').value = rec.status || "Pending";
             document.getElementById('form-title').innerText = `Editing Fee Record for Room ${rm}`;
         }
 
         async function deleteFeeRecord(rm) {
             if (confirm(`Are you sure you want to delete fee record for Room ${rm}?`)) {
+                if (editingFeeRoom === String(rm)) editingFeeRoom = null;
                 await window.rtdbRemove(window.rtdbRef(window.db, `fees/${rm}`));
                 renderFeePayments();
             }
@@ -1732,7 +1832,7 @@
         function renderOutPass() {
             const content = document.getElementById('modal-content');
             let html = `<h2>📝 Out-Pass / Leave Application</h2><hr style="margin: 10px 0;">`;
-            
+
             if (currentUser.role === 'student') {
                 html += `
                     <div style="background: #e0e7ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -1747,16 +1847,19 @@
                         </select>
                         <label style="font-size:12px; font-weight:bold; margin-top:8px; display:block;">Reason Details (Editable):</label>
                         <textarea id="leave-reason" placeholder="Write or edit reason for leave..." style="width:100%; margin:6px 0; padding:8px;"></textarea>
-                        <div style="display:flex; gap:10px; margin: 8px 0;">
-                            <div style="flex:1;"><label style="font-size:12px; font-weight:bold;">From Date:</label><input type="date" id="leave-from" style="width:100%; padding:8px;"></div>
-                            <div style="flex:1;"><label style="font-size:12px; font-weight:bold;">To Date:</label><input type="date" id="leave-to" style="width:100%; padding:8px;"></div>
+                        <div style="display:flex; gap:10px; margin: 8px 0; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:140px;"><label style="font-size:12px; font-weight:bold;">From Date:</label><input type="date" id="leave-from" style="width:100%; padding:8px;"></div>
+                            <div style="flex:1; min-width:140px;"><label style="font-size:12px; font-weight:bold;">To Date:</label><input type="date" id="leave-to" style="width:100%; padding:8px;"></div>
                         </div>
                         <button class="btn" style="margin-top:10px;" onclick="submitLeaveRequest()">Submit Leave Application</button>
                     </div>`;
             }
 
             html += `<h4>Submitted Applications</h4><div style="margin-top:10px;">`;
-            let list = currentUser.role === 'student' ? outPasses.filter(op => op.room === currentUser.room) : outPasses;
+            let list = currentUser.role === 'student'
+                ? outPasses.filter(op => String(op.room) === String(currentUser.room))
+                : outPasses;
+
             if (list.length === 0) {
                 html += `<p style="color:#6b7280; font-size:13px;">No leave requests found.</p>`;
             } else {
@@ -1765,15 +1868,15 @@
                     html += `
                         <div class="item-card">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <strong>${op.name} (Room ${op.room})</strong>
-                                <span class="badge ${badgeClass}">${op.status}</span>
+                                <strong>${escapeAttr(op.name)} (Room ${escapeAttr(op.room)})</strong>
+                                <span class="badge ${badgeClass}">${escapeAttr(op.status)}</span>
                             </div>
-                            <p style="margin:6px 0;"><strong>Reason:</strong> ${op.reason}</p>
-                            <p style="font-size:12px; color:#6b7280;">📅 <strong>Duration:</strong> ${op.fromDate} to ${op.toDate}</p>
+                            <p style="margin:6px 0;"><strong>Reason:</strong> ${escapeAttr(op.reason)}</p>
+                            <p style="font-size:12px; color:#6b7280;">📅 <strong>Duration:</strong> ${escapeAttr(op.fromDate)} to ${escapeAttr(op.toDate)}</p>
                             ${currentUser.role === 'staff' && op.status === 'Pending' ? `
                                 <div style="margin-top:10px; display:flex; gap:10px;">
-                                    <button class="btn" style="background:#10b981; padding:6px;" onclick="updateLeaveStatus('${op.firebaseId}', 'Approved')">Approve</button>
-                                    <button class="btn" style="background:#ef4444; padding:6px;" onclick="updateLeaveStatus('${op.firebaseId}', 'Rejected')">Reject</button>
+                                    <button class="btn" style="background:#10b981; padding:6px;" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}', 'Approved')">Approve</button>
+                                    <button class="btn" style="background:#ef4444; padding:6px;" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}', 'Rejected')">Reject</button>
                                 </div>` : ''}
                         </div>`;
                 });
@@ -1792,18 +1895,20 @@
             const fromDate = document.getElementById('leave-from').value;
             const toDate = document.getElementById('leave-to').value;
             if (!reason || !fromDate || !toDate) return alert("Please specify reason, start date, and end date.");
-            
+            if (fromDate > toDate) return alert("To Date cannot be earlier than From Date.");
+
             const newRef = window.rtdbPush(window.rtdbRef(window.db, "outpasses"));
             await window.rtdbSet(newRef, {
-                name: currentUser.name, room: currentUser.room, reason: reason, fromDate: fromDate, toDate: toDate, status: "Pending", createdAt: Date.now()
+                name: currentUser.name, room: String(currentUser.room), reason: reason, fromDate: fromDate, toDate: toDate, status: "Pending", createdAt: Date.now()
             });
-            triggerSystemNotification("📝 Leave Pass Applied", "Your leave application has been submitted.");
+            playNotificationSound();
+            alert("Your leave application has been submitted.");
             renderOutPass();
         }
 
         async function updateLeaveStatus(firebaseId, newStatus) {
             await window.rtdbUpdate(window.rtdbRef(window.db, `outpasses/${firebaseId}`), { status: newStatus });
-            triggerSystemNotification("📋 Out-Pass Updated", `Leave pass status set to ${newStatus}`);
+            triggerSystemNotification("📋 Out-Pass Updated", `Leave pass status set to ${newStatus}`, false);
         }
 
         function renderStaffDirectory() {
@@ -1825,16 +1930,16 @@
             staffMembers.forEach(s => {
                 html += `
                     <div class="item-card">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                             <div>
-                                <strong>${s.role}:</strong> ${s.name}
-                                <br><small style="color:#6b7280;">📞 ${s.phone}</small>
+                                <strong>${escapeAttr(s.role)}:</strong> ${escapeAttr(s.name)}
+                                <br><small style="color:#6b7280;">📞 ${escapeAttr(s.phone)}</small>
                             </div>
                             <div style="display:flex; gap:8px; align-items:center;">
-                                <a href="tel:${s.phone}" class="call-btn">📞 Call</a>
+                                <a href="tel:${escapeAttr(s.phone)}" class="call-btn">📞 Call</a>
                                 ${isStaff ? `
-                                    <button onclick="editStaffMember('${s.firebaseId}', '${s.name}', '${s.phone}')" style="background:#3b82f6; color:white; border:none; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️</button>
-                                    <button onclick="deleteStaffMember('${s.firebaseId}')" style="background:#ef4444; color:white; border:none; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️</button>
+                                    <button onclick="editStaffMemberById('${escapeAttr(s.firebaseId)}')" style="background:#3b82f6; color:white; border:none; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px;">✏️</button>
+                                    <button onclick="deleteStaffMember('${escapeAttr(s.firebaseId)}')" style="background:#ef4444; color:white; border:none; padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️</button>
                                 ` : ''}
                             </div>
                         </div>
@@ -1848,17 +1953,24 @@
             const name = document.getElementById('add-staff-name').value.trim();
             const phone = document.getElementById('add-staff-phone').value.trim();
             if (!role || !name || !phone) return alert("Please fill all contact fields!");
-            
+
             const newRef = window.rtdbPush(window.rtdbRef(window.db, "staff"));
             await window.rtdbSet(newRef, { role: role, name: name, phone: phone, id: Date.now() });
             renderStaffDirectory();
         }
 
-        async function editStaffMember(firebaseId, curName, curPhone) {
-            let newName = prompt("Edit Staff Name:", curName);
-            let newPhone = prompt("Edit Phone Number:", curPhone);
-            if (newName && newPhone) {
-                await window.rtdbUpdate(window.rtdbRef(window.db, `staff/${firebaseId}`), { name: newName.trim(), phone: newPhone.trim() });
+        async function editStaffMemberById(firebaseId) {
+            const staff = staffMembers.find(s => s.firebaseId === firebaseId);
+            if (!staff) return;
+            let newName = prompt("Edit Staff Name:", staff.name);
+            if (newName === null) return;
+            let newPhone = prompt("Edit Phone Number:", staff.phone);
+            if (newPhone === null) return;
+            if (newName.trim() && newPhone.trim()) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `staff/${firebaseId}`), {
+                    name: newName.trim(),
+                    phone: newPhone.trim()
+                });
             }
         }
 
@@ -1874,7 +1986,7 @@
             if (title && body) {
                 const newRef = window.rtdbPush(window.rtdbRef(window.db, "notices"));
                 await window.rtdbSet(newRef, { id: Date.now(), title: title, date: new Date().toISOString().split('T')[0], content: body });
-                triggerSystemNotification("📢 New Hostel Notice", title);
+                playNotificationSound();
                 document.getElementById('nt-title').value = '';
                 document.getElementById('nt-body').value = '';
                 openModule('notice');
