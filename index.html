@@ -384,6 +384,68 @@
             color: white;
         }
 
+        /* Compact Student Meal Calendar */
+        .mini-cal-box {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 20px;
+        }
+        .mini-cal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        .mini-cal-legend {
+            display: flex;
+            gap: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #4b5563;
+        }
+        .mini-cal-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+            text-align: center;
+        }
+        .mini-cal-dow {
+            font-size: 10px;
+            font-weight: bold;
+            color: #6b7280;
+            padding: 2px 0;
+        }
+        .mini-cal-day {
+            font-size: 11px;
+            font-weight: bold;
+            padding: 4px 2px;
+            border-radius: 6px;
+            background: #e5e7eb;
+            color: #374151;
+            border: 1px solid #d1d5db;
+        }
+        .mini-cal-day.empty {
+            background: transparent;
+            border-color: transparent;
+        }
+        .mini-cal-day.cal-yes {
+            background: #10b981;
+            color: #ffffff;
+            border-color: #059669;
+        }
+        .mini-cal-day.cal-no {
+            background: #ef4444;
+            color: #ffffff;
+            border-color: #dc2626;
+        }
+
         .dev-profile-container {
             text-align: center;
             padding: 10px;
@@ -595,6 +657,8 @@
 
     <script>
         const DEFAULT_TITLE = "My Hostel - Management Portal";
+        const VEG_NONVEG_DAYS = ["Wednesday", "Friday", "Sunday"];
+
         let currentUser = null;
         let activeMealTab = "Lunch";
         let editingFeeRoom = null;
@@ -609,6 +673,9 @@
         let registeredStudents = {};
         let blockedUsers = {};
         let messAttendance = {};
+        let seenAttendanceSignatures = {};
+        let lastStaffSlotKey = null;
+
         let messSchedule = {
             Lunch: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" },
             Dinner: { Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "", Saturday: "", Sunday: "" }
@@ -618,6 +685,7 @@
         let lastOutpassCount = -1;
         let lastNoticeCount = -1;
         let lastStudentComplaintStatus = {};
+        let lastStudentOutpassStatus = {};
 
         let lastReadNoticeCount = parseInt(localStorage.getItem('myhostel_read_notices') || '0', 10) || 0;
         let lastReadPendingComplaints = parseInt(localStorage.getItem('myhostel_read_complaints') || '0', 10) || 0;
@@ -632,6 +700,46 @@
             "Hostel Administrative": "4561239",
             "Kitchen Mess Cook": "3214567"
         };
+
+        function formatDateKey(dateObj) {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function formatDisplayDate(dateObj) {
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const y = dateObj.getFullYear();
+            return `${d}/${m}/${y}`;
+        }
+
+        function getMealContext(now = new Date()) {
+            const hour = now.getHours();
+            const isOptInWindowOpen = hour >= 18 || hour < 6;
+            const targetDate = new Date(now);
+            if (hour >= 18) {
+                targetDate.setDate(targetDate.getDate() + 1);
+            }
+            const targetDayName = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
+            const targetDateKey = formatDateKey(targetDate);
+            const targetDateDisplay = formatDisplayDate(targetDate);
+            const isChoiceDay = VEG_NONVEG_DAYS.includes(targetDayName);
+            const slotKey = `${targetDateKey}_${isOptInWindowOpen ? 'OPTIN' : 'LOCKED'}`;
+
+            return {
+                now,
+                hour,
+                isOptInWindowOpen,
+                targetDate,
+                targetDayName,
+                targetDateKey,
+                targetDateDisplay,
+                isChoiceDay,
+                slotKey
+            };
+        }
 
         function resetRefreshState() {
             document.title = DEFAULT_TITLE;
@@ -699,8 +807,33 @@
             }
         }
 
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                updateNotificationBadges();
+                checkAutoDayRefreshForStaff();
+            }
+        });
+
+        // Auto-refresh staff/cook view when day or slot changes
+        setInterval(() => {
+            checkAutoDayRefreshForStaff();
+        }, 60000);
+
+        function checkAutoDayRefreshForStaff() {
+            const ctx = getMealContext();
+            if (lastStaffSlotKey !== null && lastStaffSlotKey !== ctx.slotKey) {
+                lastStaffSlotKey = ctx.slotKey;
+                if (currentUser && currentUser.role === 'staff') {
+                    refreshActiveModuleByName('Mess Menu');
+                }
+            } else if (lastStaffSlotKey === null) {
+                lastStaffSlotKey = ctx.slotKey;
+            }
+        }
+
         window.initAppAfterFirebase = function() {
             resetRefreshState();
+            lastStaffSlotKey = getMealContext().slotKey;
 
             if (!rtdbListenersStarted) {
                 rtdbListenersStarted = true;
@@ -796,6 +929,22 @@
                     saveReadCounts();
                 }
 
+                if (currentUser && currentUser.role === 'student') {
+                    outPasses.forEach(op => {
+                        if (String(op.room) === String(currentUser.room) && op.name === currentUser.name) {
+                            let oldStatus = lastStudentOutpassStatus[op.firebaseId];
+                            if (oldStatus && oldStatus === 'Pending' && (op.status === 'Approved' || op.status === 'Rejected')) {
+                                if (op.status === 'Approved') {
+                                    triggerSystemNotification("✅ Leave Approved", "Your leave / out-pass application has been approved!", false);
+                                } else {
+                                    triggerSystemNotification("❌ Leave Rejected", "Your leave / out-pass application has been rejected.", false);
+                                }
+                            }
+                            lastStudentOutpassStatus[op.firebaseId] = op.status;
+                        }
+                    });
+                }
+
                 updateNotificationBadges();
                 refreshActiveModuleByName('Out-Pass');
             });
@@ -857,9 +1006,29 @@
                 refreshActiveModuleByName('Mess Menu');
             });
 
-            // 11. Mess Attendance Real-time Listener
+            // 11. Mess Attendance Real-time Listener (Only alert on genuinely new/changed student opt-in)
+            let initialAttendanceLoaded = false;
             window.rtdbOnValue(window.rtdbRef(window.db, "mess_attendance"), (snapshot) => {
                 messAttendance = snapshot.val() || {};
+                const ctx = getMealContext();
+
+                let hasFreshStudentUpdate = false;
+                Object.keys(messAttendance).forEach(k => {
+                    const item = messAttendance[k];
+                    const sig = `${item.updatedAt || 0}_${item.eat || ''}_${item.type || ''}_${item.dateKey || ''}`;
+                    if (initialAttendanceLoaded && seenAttendanceSignatures[k] && seenAttendanceSignatures[k] !== sig) {
+                        if (currentUser && currentUser.role === 'staff') {
+                            hasFreshStudentUpdate = true;
+                        }
+                    }
+                    seenAttendanceSignatures[k] = sig;
+                });
+
+                if (initialAttendanceLoaded && hasFreshStudentUpdate && currentUser && currentUser.role === 'staff') {
+                    triggerSystemNotification("🍽️ Meal Count Updated", `Updated for ${ctx.targetDayName} (${ctx.targetDateDisplay})`, false);
+                }
+
+                initialAttendanceLoaded = true;
                 refreshActiveModuleByName('Mess Menu');
             });
         }
@@ -1249,20 +1418,67 @@
             else if (moduleKey === 'outpass') renderOutPass();
         }
 
+        function buildStudentMiniCalendar(attRecord, ctx) {
+            const year = ctx.now.getFullYear();
+            const month = ctx.now.getMonth();
+            const monthLabel = ctx.now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            const firstDayDow = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const history = (attRecord && attRecord.history) ? attRecord.history : {};
+            const todayKey = formatDateKey(ctx.now);
+
+            let cells = "";
+            for (let i = 0; i < firstDayDow; i++) {
+                cells += `<div class="mini-cal-day empty"></div>`;
+            }
+
+            for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+                const dObj = new Date(year, month, dayNum);
+                const dKey = formatDateKey(dObj);
+                const savedVal = history[dKey];
+
+                let statusClass = "";
+                if (savedVal === "Yes") {
+                    statusClass = "cal-yes";
+                } else if (savedVal === "No") {
+                    statusClass = "cal-no";
+                } else if (dKey < todayKey) {
+                    // Past date where student forgot/didn't opt-in -> Red (not eaten)
+                    statusClass = "cal-no";
+                } else if (dKey === todayKey && !ctx.isOptInWindowOpen && attRecord && attRecord.eat === "No") {
+                    statusClass = "cal-no";
+                }
+
+                cells += `<div class="mini-cal-day ${statusClass}" title="${dKey}">${dayNum}</div>`;
+            }
+
+            return `
+                <div class="mini-cal-box">
+                    <div class="mini-cal-header">
+                        <span>📅 Meal Calendar (${monthLabel})</span>
+                        <div class="mini-cal-legend">
+                            <span>🟢 Ate (Yes)</span>
+                            <span>🔴 Missed / No</span>
+                        </div>
+                    </div>
+                    <div class="mini-cal-grid">
+                        <div class="mini-cal-dow">S</div>
+                        <div class="mini-cal-dow">M</div>
+                        <div class="mini-cal-dow">T</div>
+                        <div class="mini-cal-dow">W</div>
+                        <div class="mini-cal-dow">T</div>
+                        <div class="mini-cal-dow">F</div>
+                        <div class="mini-cal-dow">S</div>
+                        ${cells}
+                    </div>
+                </div>`;
+        }
+
         function renderMessMenu() {
             const content = document.getElementById('modal-content');
             let isStaff = currentUser.role === 'staff';
-
-            let now = new Date();
-            let currentHour = now.getHours();
-            let isOptInWindowOpen = currentHour >= 18 || currentHour < 6;
-
-            let targetDate = new Date();
-            if (currentHour >= 18) {
-                targetDate.setDate(targetDate.getDate() + 1);
-            }
-            let targetDayName = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
-            let isChoiceDay = ["Wednesday", "Friday", "Sunday"].includes(targetDayName);
+            const ctx = getMealContext();
+            lastStaffSlotKey = ctx.slotKey;
 
             let html = `
                 <h2>🍽️ Mess Menu & Daily Attendance</h2><hr style="margin: 10px 0;">
@@ -1275,35 +1491,39 @@
             if (currentUser.role === 'student') {
                 let safeName = currentUser.name.replace(/[^a-zA-Z0-9]/g, '');
                 let docId = `${currentUser.room}_${safeName || 'Student'}`;
-                let currentAtt = messAttendance[docId] || { eat: 'Yes', type: 'Veg' };
-                let headerTitle = isOptInWindowOpen ? `Tomorrow's Meal Opt-In (${targetDayName})` : `Today's Meal Opt-In (${targetDayName})`;
+                let currentAtt = messAttendance[docId] || { eat: 'Yes', type: 'Veg', history: {} };
+                let headerTitle = ctx.isOptInWindowOpen
+                    ? `Tomorrow's Meal Opt-In (${ctx.targetDayName}, ${ctx.targetDateDisplay})`
+                    : `Today's Meal Opt-In (${ctx.targetDayName}, ${ctx.targetDateDisplay})`;
 
                 html += `
-                    <div style="background: ${isOptInWindowOpen ? '#d1fae5' : '#fee2e2'}; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                    <div style="background: ${ctx.isOptInWindowOpen ? '#d1fae5' : '#fee2e2'}; padding: 15px; border-radius: 12px; margin-bottom: 16px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                             <h4>🍱 ${headerTitle}</h4>
-                            <span class="badge ${isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${isOptInWindowOpen ? '🟢 WINDOW OPEN (6PM - 6AM)' : '🔒 LOCKED (AFTER 6 AM)'}</span>
+                            <span class="badge ${ctx.isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${ctx.isOptInWindowOpen ? '🟢 WINDOW OPEN (6PM - 6AM)' : '🔒 LOCKED (AFTER 6 AM)'}</span>
                         </div>
                         <p style="font-size:12px; color:#4b5563; margin-top:4px;">Set whether you will eat in the mess for this meal.</p>
 
                         <div style="margin-top:12px; display:flex; gap:15px; align-items:center;">
                             <label style="font-weight:bold;">Will you eat?</label>
-                            <select id="opt-eat" ${!isOptInWindowOpen ? 'disabled' : ''} style="padding:6px; border-radius:6px;">
+                            <select id="opt-eat" ${!ctx.isOptInWindowOpen ? 'disabled' : ''} style="padding:6px; border-radius:6px;">
                                 <option value="Yes" ${currentAtt.eat === 'Yes' ? 'selected' : ''}>Yes, I will eat</option>
                                 <option value="No" ${currentAtt.eat === 'No' ? 'selected' : ''}>No, Skip Meal</option>
                             </select>
                         </div>
 
-                        ${isChoiceDay ? `
+                        ${ctx.isChoiceDay ? `
                             <div style="margin-top:10px; display:flex; gap:15px; align-items:center;">
-                                <label style="font-weight:bold;">Select Preference:</label>
-                                <label><input type="radio" name="opt-type" value="Veg" ${currentAtt.type === 'Veg' ? 'checked' : ''} ${!isOptInWindowOpen ? 'disabled' : ''}> 🥦 Veg</label>
-                                <label><input type="radio" name="opt-type" value="NonVeg" ${currentAtt.type === 'NonVeg' ? 'checked' : ''} ${!isOptInWindowOpen ? 'disabled' : ''}> 🍗 Non-Veg</label>
+                                <label style="font-weight:bold;">Select Preference (${ctx.targetDayName}):</label>
+                                <label><input type="radio" name="opt-type" value="Veg" ${currentAtt.type === 'Veg' ? 'checked' : ''} ${!ctx.isOptInWindowOpen ? 'disabled' : ''}> 🥦 Veg</label>
+                                <label><input type="radio" name="opt-type" value="NonVeg" ${currentAtt.type === 'NonVeg' ? 'checked' : ''} ${!ctx.isOptInWindowOpen ? 'disabled' : ''}> 🍗 Non-Veg</label>
                             </div>
                         ` : ''}
 
-                        ${isOptInWindowOpen ? `<button class="btn" style="margin-top:12px; padding:8px;" onclick="saveStudentAttendance('${escapeAttr(docId)}')">Save Meal Choice</button>` : ''}
+                        ${ctx.isOptInWindowOpen ? `<button class="btn" style="margin-top:12px; padding:8px;" onclick="saveStudentAttendance('${escapeAttr(docId)}')">Save Meal Choice</button>` : ''}
                     </div>`;
+
+                html += buildStudentMiniCalendar(currentAtt, ctx);
             }
 
             if (isStaff) {
@@ -1315,15 +1535,20 @@
                     }
                 });
 
+                const targetMenuText = (messSchedule[activeMealTab] && messSchedule[activeMealTab][ctx.targetDayName])
+                    ? messSchedule[activeMealTab][ctx.targetDayName]
+                    : "Not set yet";
+
                 html += `
                     <div style="background: #e0e7ff; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                            <h4>📊 Kitchen Live Count Summary</h4>
+                            <h4>📊 Kitchen Live Count Summary — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)}) • ${escapeAttr(activeMealTab)}</h4>
                             <div style="display:flex; gap:6px;">
                                 <button onclick="window.print()" style="background:#4f46e5; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">🖨️ Print List</button>
-                                <button onclick="shareWhatsAppSummary(${totalOpted}, ${totalVeg}, ${totalNonVeg})" style="background:#10b981; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">📲 WhatsApp</button>
+                                <button onclick="shareWhatsAppSummary(${totalOpted}, ${totalVeg}, ${totalNonVeg}, '${escapeAttr(ctx.targetDayName)}', '${escapeAttr(ctx.targetDateDisplay)}', '${escapeAttr(activeMealTab)}')" style="background:#10b981; color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px;">📲 WhatsApp</button>
                             </div>
                         </div>
+                        <p style="margin-top:8px; font-size:13px; color:#1f2937;"><strong>🍽️ Meal Menu (${escapeAttr(ctx.targetDayName)}, ${escapeAttr(activeMealTab)}):</strong> ${escapeAttr(targetMenuText)}</p>
                         <div style="display:flex; gap:15px; margin-top:10px; font-weight:bold; font-size:14px; flex-wrap:wrap;">
                             <span>Total Eating: ${totalOpted}</span> |
                             <span style="color:#059669;">🥦 Veg: ${totalVeg}</span> |
@@ -1331,7 +1556,7 @@
                         </div>
                     </div>
 
-                    <h4>📋 Sorted Attendance List (Room-wise)</h4>
+                    <h4>📋 Sorted Attendance List (Room-wise) — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)})</h4>
                     <div style="margin-top:10px;">`;
 
                 let sortedKeys = Object.keys(messAttendance).sort((a, b) => {
@@ -1378,15 +1603,27 @@
             const eatEl = document.getElementById('opt-eat');
             if (!eatEl) return;
             const eat = eatEl.value;
+            const ctx = getMealContext();
+
             const typeRadio = document.querySelector('input[name="opt-type"]:checked');
-            const typeVal = typeRadio ? typeRadio.value : 'Veg';
+            const prevRecord = messAttendance[docId] || {};
+            const typeVal = ctx.isChoiceDay ? (typeRadio ? typeRadio.value : 'Veg') : (prevRecord.type || 'Veg');
+
+            const updatedHistory = Object.assign({}, prevRecord.history || {});
+            updatedHistory[ctx.targetDateKey] = eat;
+
+            const updatedAt = Date.now();
+            seenAttendanceSignatures[docId] = `${updatedAt}_${eat}_${typeVal}_${ctx.targetDateKey}`;
 
             await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${docId}`), {
                 room: String(currentUser.room),
                 name: currentUser.name,
                 eat: eat,
                 type: typeVal,
-                updatedAt: Date.now()
+                dayName: ctx.targetDayName,
+                dateKey: ctx.targetDateKey,
+                history: updatedHistory,
+                updatedAt: updatedAt
             });
             alert("Your meal preference has been saved!");
             renderMessMenu();
@@ -1408,8 +1645,10 @@
             }
         }
 
-        function shareWhatsAppSummary(total, veg, nonveg) {
+        function shareWhatsAppSummary(total, veg, nonveg, dayName = "", dateDisplay = "", mealTab = "") {
             let text = `*My Hostel - Attendance Summary*%0A` +
+                       (dayName ? `📅 *Day & Date:* ${dayName} (${dateDisplay})%0A` : ``) +
+                       (mealTab ? `🍽️ *Meal:* ${mealTab}%0A` : ``) +
                        `-----------------------------------%0A` +
                        `🍱 *Total Meal Count:* ${total}%0A` +
                        `🥦 *Veg Count:* ${veg}%0A` +
@@ -1548,6 +1787,7 @@
         }
 
         async function resendComplaint(firebaseId) {
+            lastStudentComplaintStatus[firebaseId] = "Pending";
             await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${firebaseId}`), { status: "Pending", resolvedAt: null });
             alert("Complaint has been resent to staff!");
         }
