@@ -1700,7 +1700,7 @@
             return sameRole && sameName && String(existing.position || '') === String(candidate.position || '');
         }
 
-        // One-number = one-login check (released upon logout)
+        // One-number = one-login check (freed immediately on logout for both student and staff)
         async function claimSingleNumberLogin(phoneKey, candidate) {
             const lockRef = window.rtdbRef(window.db, `login_locks/${phoneKey}`);
             const snap = await window.rtdbGet(lockRef);
@@ -1880,15 +1880,10 @@
             btn.innerText = "Login";
         }
 
-        function logoutSession() {
+        async function logoutSession() {
             const activePhoneKey = currentUser && currentUser.phone ? keyOf(currentUser.phone) : presenceKey;
-            if (presenceKey && window.db) {
-                window.rtdbRemove(window.rtdbRef(window.db, 'presence/' + presenceKey)).catch(() => {});
-                presenceKey = null;
-            }
-            if (activePhoneKey && window.db) {
-                window.rtdbRemove(window.rtdbRef(window.db, 'login_locks/' + activePhoneKey)).catch(() => {});
-            }
+            const prevPresenceKey = presenceKey;
+
             try {
                 ['myhostel_active_user', 'myhostel_read_notices', 'myhostel_read_complaints', 'myhostel_read_outpasses'].forEach(k => localStorage.removeItem(k));
             } catch (e) {}
@@ -1898,10 +1893,21 @@
             adminCalOpen = false;
             selectedPrevDateKey = null;
             currentUser = null;
+            presenceKey = null;
             resetRefreshState();
             closeModal();
             document.getElementById('header-user-badge').style.display = 'none';
             showScreen('role-screen');
+
+            if (window.db) {
+                try {
+                    if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                    const ops = [];
+                    if (prevPresenceKey) ops.push(window.rtdbRemove(window.rtdbRef(window.db, 'presence/' + prevPresenceKey)).catch(() => {}));
+                    if (activePhoneKey) ops.push(window.rtdbRemove(window.rtdbRef(window.db, 'login_locks/' + activePhoneKey)).catch(() => {}));
+                    await Promise.all(ops);
+                } catch (e) {}
+            }
         }
 
         function closeModal() {
