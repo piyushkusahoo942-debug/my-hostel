@@ -791,7 +791,7 @@
                 </div>
                 <div class="form-group" id="stu-bed-code-group" style="display:none">
                     <label>Bed Verification Code</label>
-                    <input type="password" id="stu-bed-code" placeholder="Enter bed verification code" oninput="tryAutoStudentLogin()">
+                    <input type="password" id="stu-bed-code" placeholder="Enter 6-character bed verification code" oninput="tryAutoStudentLogin()">
                 </div>
                 <button class="btn" id="stu-login-btn" onclick="handleStudentLogin(false)">Login</button>
                 <br><a class="back-link" onclick="showScreen('role-screen')">&larr; Back</a>
@@ -899,9 +899,6 @@
     <script>
         const DEFAULT_TITLE = "My Hostel - Management Portal";
         const VEG_NONVEG_DAYS = ["Wednesday", "Friday", "Sunday"];
-        const ACTIVE_SESSION_WINDOW_MS = 45000;
-        const HEARTBEAT_INTERVAL_MS = 15000;
-
         const staffCodes = {
             "Chief Warden": "7854123",
             "Hostel Incharge": "6541230",
@@ -910,24 +907,75 @@
             "Kitchen Mess Cook": "3214567"
         };
 
-        // Non-serial random bed code generator (seeded deterministically per room + bed 1..3)
-        function getRandomBedCode(room, bed) {
-            const b = String(bed);
-            if (!["1", "2", "3"].includes(b)) return "";
-            const rNum = parseInt(room, 10) || 100;
-            const bOffset = b === "1" ? 739 : b === "2" ? 413 : 887;
-            let h = ((rNum * 2654435761) ^ (bOffset * 2246822519)) >>> 0;
-            const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-            let out = "";
-            for (let i = 0; i < 6; i++) {
-                h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
-                out += chars[h % chars.length];
-            }
-            return out;
+        /* Fixed 6-character non-serial Bed Verification Codes per room (101-135, 201-235, 301-335) and bed (1, 2, 3) */
+        const BED_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        const FIXED_BED_CODES = {};
+
+        function isValidHostelRoom(room) {
+            const rm = parseInt(room, 10);
+            return (rm >= 101 && rm <= 135) || (rm >= 201 && rm <= 235) || (rm >= 301 && rm <= 335);
         }
 
-        function createSessionId() {
-            return "sess_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
+        function getAllHostelRooms() {
+            const rooms = [];
+            for (const [start, end] of [[101, 135], [201, 235], [301, 335]]) {
+                for (let r = start; r <= end; r++) rooms.push(r);
+            }
+            return rooms;
+        }
+
+        function buildFixedBedCodeTable() {
+            const used = new Set();
+            for (const rm of getAllHostelRooms()) {
+                FIXED_BED_CODES[String(rm)] = {};
+                for (const b of ["1", "2", "3"]) {
+                    const bedMix = b === "1" ? 0x9e3779b9 : b === "2" ? 0x85ebca6b : 0xc2b2ae35;
+                    let state = (Math.imul(rm ^ 0x5bd1e995, 0x27d4eb2d) ^ bedMix) >>> 0;
+                    let attempt = 0;
+                    let code = "";
+                    do {
+                        state = (Math.imul(state ^ (attempt * 0x165667b1), 0x85ebca6b) + 0xc2b2ae35) >>> 0;
+                        let s = state || 0x13579bdf;
+                        code = "";
+                        for (let i = 0; i < 6; i++) {
+                            s ^= s << 13;
+                            s >>>= 0;
+                            s ^= s >>> 17;
+                            s >>>= 0;
+                            s ^= s << 5;
+                            s = (Math.imul(s >>> 0, 0x27d4eb2d) + (i + 1) * 0x9e3779b9) >>> 0;
+                            code += BED_CODE_ALPHABET[s % BED_CODE_ALPHABET.length];
+                        }
+                        attempt++;
+                    } while (used.has(code));
+                    used.add(code);
+                    FIXED_BED_CODES[String(rm)][b] = code;
+                }
+            }
+        }
+        buildFixedBedCodeTable();
+
+        function getRandomBedCode(room, bed) {
+            const rm = String(parseInt(room, 10));
+            const b = String(bed || "").trim();
+            if (!isValidHostelRoom(rm) || !["1", "2", "3"].includes(b)) return "";
+            return (FIXED_BED_CODES[rm] && FIXED_BED_CODES[rm][b]) || "";
+        }
+
+        function getRoomBedCodeBundle(room) {
+            const rm = parseInt(room, 10);
+            if (!isValidHostelRoom(rm)) return null;
+            return {
+                room: String(rm),
+                roomCode: String(rm) + "0",
+                bed1: getRandomBedCode(rm, "1"),
+                bed2: getRandomBedCode(rm, "2"),
+                bed3: getRandomBedCode(rm, "3")
+            };
+        }
+
+        function normalizeBedCodeInput(val) {
+            return String(val || "").trim().toUpperCase();
         }
 
         let currentUser = null;
@@ -956,7 +1004,6 @@
         let rtdbListenersStarted = false;
         let presenceStarted = false;
         let presenceKey = null;
-        let heartbeatTimer = null;
 
         let messSchedule = { Lunch: {}, Dinner: {} };
 
@@ -1012,7 +1059,7 @@
                     ok: false,
                     ten: "",
                     formatted: "",
-                    message: "Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9 after +91."
+                    message: "Please enter a valid 10-digit Indian mobile number (10 digits starting with 6, 7, 8, or 9 after +91)."
                 };
             }
             return {
@@ -1155,7 +1202,6 @@
                 updateNotificationBadges();
                 checkAutoDayRefreshForStaff();
                 checkStudentNotifs();
-                touchActiveSessionHeartbeat();
             }
         });
 
@@ -1219,10 +1265,10 @@
                     changed = true;
                     if (op.status === 'Approved') {
                         unreadStudentOutpassAlerts++;
-                        triggerSystemNotification("Leave Approved", "Your leave / out-pass application has been approved.", false);
+                        triggerSystemNotification("✅ Leave Approved", "Your leave / out-pass application has been approved!", false);
                     } else if (op.status === 'Rejected') {
                         unreadStudentOutpassAlerts++;
-                        triggerSystemNotification("Leave Rejected", "Your leave / out-pass application has been rejected.", false);
+                        triggerSystemNotification("❌ Leave Rejected", "Your leave / out-pass application has been rejected.", false);
                     }
                 }
             });
@@ -1239,7 +1285,7 @@
                     seen[id] = c.status;
                     changed = true;
                     if (c.status === 'Resolved') {
-                        triggerSystemNotification("Complaint Resolved", "Your complaint has been resolved.", false);
+                        triggerSystemNotification("✅ Complaint Resolved", "Your complaint has been resolved!", false);
                     }
                 }
             });
@@ -1251,7 +1297,7 @@
         }
 
         function forceLogoutBlocked() {
-            logoutSession(true);
+            logoutSession();
             alert("Access Denied: Your account has been blocked by the hostel admin.");
         }
 
@@ -1260,35 +1306,6 @@
                 const b = blockedUsers[keyOf(currentUser.phone)];
                 if (b && b.blocked) forceLogoutBlocked();
             }
-        }
-
-        function startSessionHeartbeat() {
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
-            heartbeatTimer = setInterval(() => {
-                touchActiveSessionHeartbeat();
-            }, HEARTBEAT_INTERVAL_MS);
-        }
-
-        function stopSessionHeartbeat() {
-            if (heartbeatTimer) {
-                clearInterval(heartbeatTimer);
-                heartbeatTimer = null;
-            }
-        }
-
-        async function touchActiveSessionHeartbeat() {
-            if (!currentUser || !currentUser.sessionId || !window.db) return;
-            const k = keyOf(currentUser.phone);
-            if (!k) return;
-            try {
-                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                const lockRef = window.rtdbRef(window.db, `login_locks/${k}`);
-                await window.rtdbUpdate(lockRef, {
-                    locked: true,
-                    sessionId: currentUser.sessionId,
-                    lastSeen: Date.now()
-                });
-            } catch (e) {}
         }
 
         function startPresence() {
@@ -1302,7 +1319,6 @@
                 const r = window.rtdbRef(window.db, 'presence/' + k);
                 try { window.rtdbOnDisconnect(r).remove(); } catch (e) {}
                 window.rtdbSet(r, { name: currentUser.name, room: String(currentUser.room), bed: String(currentUser.bed || ''), ts: Date.now() }).catch(() => {});
-                touchActiveSessionHeartbeat();
             });
         }
 
@@ -1328,20 +1344,11 @@
             const saved = ls('myhostel_active_user', null);
             if (saved) {
                 try {
-                    const parsed = JSON.parse(saved);
-                    if (parsed && parsed.phone) {
-                        if (!parsed.sessionId) parsed.sessionId = createSessionId();
-                        currentUser = parsed;
-                        try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (_) {}
-                        setupUserUI();
-                        showScreen('dashboard-screen');
-                        startSessionHeartbeat();
-                        touchActiveSessionHeartbeat();
-                        if (currentUser.role === 'student') {
-                            announcePresenceNow();
-                            checkBlockedNow();
-                        }
-                    }
+                    currentUser = JSON.parse(saved);
+                    setupUserUI();
+                    showScreen('dashboard-screen');
+                    announcePresenceNow();
+                    checkBlockedNow();
                 } catch (e) {
                     try { localStorage.removeItem('myhostel_active_user'); } catch (_) {}
                 }
@@ -1359,7 +1366,7 @@
             L("notices", s => {
                 notices = toList(s.val());
                 if (lastNoticeCount !== -1 && notices.length > lastNoticeCount && currentUser && currentUser.role === 'student') {
-                    triggerSystemNotification("New Hostel Notice", "Admin posted a new notice.", false);
+                    triggerSystemNotification("📢 New Hostel Notice", "Admin posted a new notice!", false);
                 }
                 lastNoticeCount = notices.length;
                 if (notices.length < lastReadNoticeCount) {
@@ -1374,7 +1381,7 @@
                 complaints = toList(s.val());
                 const p = complaints.filter(c => c.status === 'Pending').length;
                 if (lastComplaintCount !== -1 && p > lastComplaintCount && currentUser && currentUser.role === 'staff') {
-                    triggerSystemNotification("New Pending Complaint", "A student submitted a new complaint issue.", true);
+                    triggerSystemNotification("🚨 New Pending Complaint", "A student submitted a new complaint issue!", true);
                 }
                 lastComplaintCount = p;
                 if (p < lastReadPendingComplaints) {
@@ -1391,7 +1398,7 @@
                 outPasses = toList(s.val());
                 const p = outPasses.filter(o => o.status === 'Pending').length;
                 if (lastOutpassCount !== -1 && p > lastOutpassCount && currentUser && currentUser.role === 'staff') {
-                    triggerSystemNotification("New Pending Leave Request", "A student applied for a new leave pass.", true);
+                    triggerSystemNotification("📝 New Pending Leave Request", "A student applied for a new leave pass!", true);
                 }
                 lastOutpassCount = p;
                 if (p < lastReadPendingOutpasses) {
@@ -1469,7 +1476,7 @@
                     seenAttendanceSignatures[k] = sig;
                 });
                 if (first && fresh) {
-                    triggerSystemNotification("Meal Count Updated", `Live count refreshed for ${ctx.targetDayName} (${ctx.targetDateDisplay})`, false);
+                    triggerSystemNotification("🍽️ Meal Count Updated", `Live count refreshed for ${ctx.targetDayName} (${ctx.targetDateDisplay})`, false);
                 }
                 first = true;
                 refreshActiveModuleByName('Mess');
@@ -1668,7 +1675,7 @@
             const room = document.getElementById('stu-room').value;
             const code = document.getElementById('stu-code').value.trim();
             const bed = document.getElementById('stu-bed').value;
-            const bedCode = document.getElementById('stu-bed-code').value.trim();
+            const bedCode = normalizeBedCodeInput(document.getElementById('stu-bed-code').value);
 
             if (!name || !rawPhone || !room || !code || !bed || !bedCode) return;
             const phoneCheck = parseAndValidateIndianPhone(rawPhone);
@@ -1681,44 +1688,53 @@
             }
         }
 
-        // Allow re-login after logout, but block concurrent active login on the same number
+        function isSameLoginIdentity(existing, candidate) {
+            if (!existing || !candidate) return false;
+            const sameRole = existing.role === candidate.role;
+            const sameName = String(existing.name || '').trim().toLowerCase() === String(candidate.name || '').trim().toLowerCase();
+            if (candidate.role === 'student') {
+                return sameRole && sameName &&
+                    String(existing.room || '') === String(candidate.room || '') &&
+                    String(existing.bed || '') === String(candidate.bed || '');
+            }
+            return sameRole && sameName && String(existing.position || '') === String(candidate.position || '');
+        }
+
+        // One-number = one-login check (released upon logout)
         async function claimSingleNumberLogin(phoneKey, candidate) {
             const lockRef = window.rtdbRef(window.db, `login_locks/${phoneKey}`);
             const snap = await window.rtdbGet(lockRef);
             const existing = snap.val();
-            const now = Date.now();
-            const newSessionId = createSessionId();
 
             if (existing && existing.locked) {
-                const lastActivity = existing.lastSeen || existing.lastLoginAt || 0;
-                const isStillActive = (now - lastActivity) <= ACTIVE_SESSION_WINDOW_MS;
-                const isSameSession = currentUser && currentUser.sessionId && existing.sessionId === currentUser.sessionId;
-
-                if (isStillActive && !isSameSession) {
+                if (!isSameLoginIdentity(existing, candidate)) {
                     const holderInfo = existing.role === 'student'
                         ? `${existing.name || 'Student'} (Room ${existing.room || '--'}, Bed ${existing.bed || '--'})`
                         : `${existing.name || 'Staff'} (${existing.position || 'Staff'})`;
                     return {
                         allowed: false,
-                        message: `This mobile number (+91 ${phoneKey.slice(2)}) is currently logged in elsewhere (${holderInfo}).\nSimultaneous login from two places with the same number is not allowed. Please log out from the active session first.`
+                        message: `This phone number (+91 ${phoneKey.slice(2)}) is already logged in with another ID (${holderInfo}). Only one active login is allowed per phone number at a time.`
                     };
                 }
+
+                await window.rtdbUpdate(lockRef, {
+                    lastLoginAt: Date.now()
+                });
+                return { allowed: true };
             }
 
             await window.rtdbSet(lockRef, {
                 locked: true,
-                sessionId: newSessionId,
                 role: candidate.role,
                 name: candidate.name,
                 room: candidate.role === 'student' ? String(candidate.room) : null,
                 bed: candidate.role === 'student' ? String(candidate.bed) : null,
                 position: candidate.role === 'staff' ? String(candidate.position) : null,
                 phone: "+91" + phoneKey.slice(2),
-                firstLoginAt: (existing && existing.firstLoginAt) || now,
-                lastLoginAt: now,
-                lastSeen: now
+                firstLoginAt: Date.now(),
+                lastLoginAt: Date.now()
             });
-            return { allowed: true, sessionId: newSessionId };
+            return { allowed: true };
         }
 
         async function handleStudentLogin(isAuto = false) {
@@ -1729,7 +1745,7 @@
             const room = document.getElementById('stu-room').value;
             const code = document.getElementById('stu-code').value.trim();
             const bed = document.getElementById('stu-bed').value;
-            const bedCode = document.getElementById('stu-bed-code').value.trim();
+            const bedCode = normalizeBedCodeInput(document.getElementById('stu-bed-code').value);
 
             if (!name || !rawPhone || !room || !code || !bed || !bedCode) {
                 if (isAuto) return;
@@ -1747,7 +1763,8 @@
                 return alert("Invalid room verification code!");
             }
 
-            if (bedCode !== getRandomBedCode(room, bed)) {
+            const expectedBedCode = getRandomBedCode(room, bed);
+            if (!expectedBedCode || bedCode !== expectedBedCode) {
                 if (isAuto) return;
                 return alert(`Invalid verification code for Bed ${bed}!`);
             }
@@ -1788,8 +1805,7 @@
                     name,
                     phone: phoneCheck.formatted,
                     room: String(room),
-                    bed: String(bed),
-                    sessionId: lockCheck.sessionId
+                    bed: String(bed)
                 };
                 unreadStudentOutpassAlerts = 0;
                 try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
@@ -1802,7 +1818,6 @@
                     lastLogin: Date.now()
                 });
 
-                startSessionHeartbeat();
                 requestNotificationPermission();
                 getAudio();
                 setupUserUI();
@@ -1850,15 +1865,8 @@
                     return alert(lockCheck.message);
                 }
 
-                currentUser = {
-                    role: 'staff',
-                    position: role,
-                    name,
-                    phone: phoneCheck.formatted,
-                    sessionId: lockCheck.sessionId
-                };
+                currentUser = { role: 'staff', position: role, name, phone: phoneCheck.formatted };
                 try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
-                startSessionHeartbeat();
                 requestNotificationPermission();
                 getAudio();
                 setupUserUI();
@@ -1872,20 +1880,15 @@
             btn.innerText = "Login";
         }
 
-        function logoutSession(skipLockRelease = false) {
-            stopSessionHeartbeat();
-            const activeUser = currentUser;
-            const phoneKey = activeUser ? keyOf(activeUser.phone) : presenceKey;
-
+        function logoutSession() {
+            const activePhoneKey = currentUser && currentUser.phone ? keyOf(currentUser.phone) : presenceKey;
             if (presenceKey && window.db) {
                 window.rtdbRemove(window.rtdbRef(window.db, 'presence/' + presenceKey)).catch(() => {});
                 presenceKey = null;
             }
-
-            if (!skipLockRelease && phoneKey && window.db) {
-                window.rtdbRemove(window.rtdbRef(window.db, 'login_locks/' + phoneKey)).catch(() => {});
+            if (activePhoneKey && window.db) {
+                window.rtdbRemove(window.rtdbRef(window.db, 'login_locks/' + activePhoneKey)).catch(() => {});
             }
-
             try {
                 ['myhostel_active_user', 'myhostel_read_notices', 'myhostel_read_complaints', 'myhostel_read_outpasses'].forEach(k => localStorage.removeItem(k));
             } catch (e) {}
@@ -1932,19 +1935,18 @@
                         <div class="live-box"><b>${online}</b><span>ONLINE</span></div>
                     </div>
                     <div class="dev-info-box">
-                        <p><strong>Education:</strong> Plus Three (+3) Student</p>
-                        <p style="margin-top:6px"><strong>College:</strong> NC Autonomous College</p>
-                        <p style="margin-top:6px"><strong>Project:</strong> My Hostel Management Portal</p>
+                        <p><strong>🎓 Education:</strong> Plus Three (+3) Student</p>
+                        <p style="margin-top:6px"><strong>🏫 College:</strong> NC Autonomous College</p>
+                        <p style="margin-top:6px"><strong>💻 Project:</strong> My Hostel Management Portal</p>
                     </div>`;
 
             if (isStaff) {
-                html += `<hr style="margin:20px 0"><h3 style="color:var(--primary);margin-bottom:10px">Admin Dashboard</h3>`;
+                html += `<hr style="margin:20px 0"><h3 style="color:var(--primary);margin-bottom:10px">🛡️ Admin Dashboard</h3>`;
                 if (!keys.length) html += `<p style="color:#6b7280;font-size:13px">No registered students found.</p>`;
                 keys.sort((a, b) => (parseInt(registeredStudents[a].room) || 0) - (parseInt(registeredStudents[b].room) || 0)).forEach(k => {
                     const st = registeredStudents[k];
                     const bl = blockedUsers[k] && blockedUsers[k].blocked;
-                    const lockObj = loginLocks[k];
-                    const locked = !!(lockObj && lockObj.locked && ((Date.now() - (lockObj.lastSeen || lockObj.lastLoginAt || 0)) <= ACTIVE_SESSION_WINDOW_MS));
+                    const locked = !!(loginLocks[k] && loginLocks[k].locked);
                     const on = !!presence[k];
                     const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
                     html += `
@@ -1952,11 +1954,11 @@
                             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
                                 <div>
                                     <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)}${escapeAttr(bedInfo)})<br>
-                                    <small style="color:#6b7280">Phone: ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
+                                    <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
                                 </div>
                                 <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
                                     <span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
-                                    ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">Unlock No.</button>` : ''}
+                                    ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
                                     <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>
                                 </div>
                             </div>
@@ -1965,12 +1967,14 @@
 
                 html += `
                     <hr style="margin:20px 0">
-                    <h4 style="color:var(--primary);margin-bottom:8px;text-align:left">Bed Verification Codes Lookup</h4>
+                    <h4 style="color:var(--primary);margin-bottom:8px;text-align:left">🔑 Bed Verification Codes Lookup</h4>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;text-align:left">
-                        <input type="number" id="lookup-room-input" placeholder="Room No. (e.g. 229)" style="flex:1;min-width:140px;padding:8px;border:1px solid #d1d5db;border-radius:8px">
+                        <input type="number" id="lookup-room-input" placeholder="Room No. (101-135, 201-235, 301-335)" style="flex:1;min-width:160px;padding:8px;border:1px solid #d1d5db;border-radius:8px" onkeydown="if(event.key==='Enter'){event.preventDefault();showRoomBedCodes();}">
                         <button type="button" onclick="showRoomBedCodes()" style="background:var(--primary);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:13px">Check Bed Codes</button>
+                        <button type="button" onclick="toggleAllRoomsBedCodes()" style="background:#111827;color:#fff;border:none;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:12px">All Rooms</button>
                     </div>
-                    <div id="lookup-bed-codes-result" style="margin-top:10px;text-align:left"></div>`;
+                    <div id="lookup-bed-codes-result" style="margin-top:10px;text-align:left"></div>
+                    <div id="all-rooms-bed-codes-list" style="margin-top:10px;text-align:left"></div>`;
             }
 
             html += `</div>`;
@@ -1981,16 +1985,53 @@
             const inp = document.getElementById('lookup-room-input');
             const out = document.getElementById('lookup-bed-codes-result');
             if (!inp || !out) return;
-            const rm = parseInt(inp.value, 10);
-            if (!rm || rm < 101 || rm > 335) {
-                out.innerHTML = `<p style="color:#dc2626;font-size:12px">Enter a valid room number (101–335).</p>`;
+            const bundle = getRoomBedCodeBundle(inp.value);
+            if (!bundle) {
+                out.innerHTML = `<p style="color:#dc2626;font-size:12px">Enter a valid room number (101–135, 201–235, or 301–335).</p>`;
                 return;
             }
             out.innerHTML = `
-                <div class="item-card" style="padding:10px 12px;margin-bottom:0">
-                    <strong>Room ${rm}</strong> (Room Code: <code>${rm}0</code>)<br>
-                    <small style="color:#374151">Bed 1: <strong>${getRandomBedCode(rm, 1)}</strong> | Bed 2: <strong>${getRandomBedCode(rm, 2)}</strong> | Bed 3: <strong>${getRandomBedCode(rm, 3)}</strong></small>
+                <div class="item-card" style="padding:12px;margin-bottom:0;border-left-color:#4f46e5">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                        <strong>🚪 Room ${escapeAttr(bundle.room)}</strong>
+                        <span class="badge badge-resolved">Room Code: ${escapeAttr(bundle.roomCode)}</span>
+                    </div>
+                    <div style="margin-top:8px;font-size:13px;color:#1f2937;line-height:1.7">
+                        <div>🛏️ <strong>Bed 1 Code:</strong> <code>${escapeAttr(bundle.bed1)}</code></div>
+                        <div>🛏️ <strong>Bed 2 Code:</strong> <code>${escapeAttr(bundle.bed2)}</code></div>
+                        <div>🛏️ <strong>Bed 3 Code:</strong> <code>${escapeAttr(bundle.bed3)}</code></div>
+                    </div>
                 </div>`;
+        }
+
+        function toggleAllRoomsBedCodes() {
+            const wrap = document.getElementById('all-rooms-bed-codes-list');
+            if (!wrap) return;
+            if (wrap.innerHTML.trim() !== "") {
+                wrap.innerHTML = "";
+                return;
+            }
+            const allRooms = getAllHostelRooms();
+            let rowsHtml = `
+                <div class="item-card" style="padding:12px;margin-bottom:0;max-height:260px;overflow-y:auto">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <strong style="font-size:13px;color:var(--primary)">📋 All Rooms & Beds Verification Codes (${allRooms.length} Rooms)</strong>
+                        <button type="button" onclick="toggleAllRoomsBedCodes()" style="background:none;border:none;color:#6b7280;font-weight:bold;cursor:pointer;font-size:12px">✕ Hide</button>
+                    </div>`;
+            allRooms.forEach(rm => {
+                const b = getRoomBedCodeBundle(rm);
+                rowsHtml += `
+                    <div style="padding:6px 0;border-bottom:1px solid #e5e7eb;font-size:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                        <span><strong>Rm ${escapeAttr(b.room)}</strong> (Room: <code>${escapeAttr(b.roomCode)}</code>)</span>
+                        <span>
+                            B1: <code>${escapeAttr(b.bed1)}</code> |
+                            B2: <code>${escapeAttr(b.bed2)}</code> |
+                            B3: <code>${escapeAttr(b.bed3)}</code>
+                        </span>
+                    </div>`;
+            });
+            rowsHtml += `</div>`;
+            wrap.innerHTML = rowsHtml;
         }
 
         async function releaseNumberLock(k) {
@@ -2033,13 +2074,13 @@
 
             if (key === 'notice') {
                 const canEdit = currentUser.role === 'staff' && currentUser.position !== 'Kitchen Mess Cook';
-                let h = `<h2>Notice Board</h2><hr style="margin:10px 0">`;
+                let h = `<h2>📢 Notice Board</h2><hr style="margin:10px 0">`;
                 if (canEdit) {
                     h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Add New Notice</h4><input type="text" id="nt-title" placeholder="Notice Title" style="width:100%;margin:8px 0;padding:8px"><textarea id="nt-body" placeholder="Notice Description" style="width:100%;margin-bottom:8px;padding:8px"></textarea><button class="btn" onclick="addNotice()">Post Notice</button></div>`;
                 }
                 if (!notices.length) h += `<p style="color:#6b7280;font-size:13px;text-align:center;padding:20px">No notices posted yet.</p>`;
                 [...notices].sort((a, b) => (b.id || 0) - (a.id || 0)).forEach(n => {
-                    h += `<div class="item-card"><h4 style="color:var(--primary)">${escapeAttr(n.title)}</h4><small style="color:#6b7280">Date: ${escapeAttr(n.date)}</small><p style="margin-top:5px">${escapeAttr(n.content)}</p>${canEdit ? `<button onclick="deleteNotice('${escapeAttr(n.firebaseId)}')" style="color:red;background:none;border:none;cursor:pointer;margin-top:8px">Delete</button>` : ''}</div>`;
+                    h += `<div class="item-card"><h4 style="color:var(--primary)">${escapeAttr(n.title)}</h4><small style="color:#6b7280">Date: ${escapeAttr(n.date)}</small><p style="margin-top:5px">${escapeAttr(n.content)}</p>${canEdit ? `<button onclick="deleteNotice('${escapeAttr(n.firebaseId)}')" style="color:red;background:none;border:none;cursor:pointer;margin-top:8px">🗑️ Delete</button>` : ''}</div>`;
                 });
                 content.innerHTML = h;
             } else if (key === 'mess') renderMessMenu();
@@ -2072,7 +2113,7 @@
                 cells += `<div class="mini-cal-day ${c}" title="${k}">${d}</div>`;
             }
 
-            return `<div class="mini-cal-box"><div class="mini-cal-header"><span>Meal Calendar (${label})</span><div class="mini-cal-legend"><span>Ate (Yes)</span><span>Missed / No</span></div></div><div class="mini-cal-grid">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(x => `<div class="mini-cal-dow">${x}</div>`).join('')}${cells}</div></div>`;
+            return `<div class="mini-cal-box"><div class="mini-cal-header"><span>📅 Meal Calendar (${label})</span><div class="mini-cal-legend"><span>🟢 Ate (Yes)</span><span>🔴 Missed / No</span></div></div><div class="mini-cal-grid">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(x => `<div class="mini-cal-dow">${x}</div>`).join('')}${cells}</div></div>`;
         }
 
         function toggleAdminPrevCalendar() {
@@ -2125,7 +2166,7 @@
                 }).sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0));
 
                 detailHtml += `<hr style="margin:12px 0">`;
-                detailHtml += `<p style="font-size:13px;font-weight:bold;color:#111827">${escapeAttr(dispDate)} (${escapeAttr(dayName)}) — Yes: ${yesStudents.length}</p>`;
+                detailHtml += `<p style="font-size:13px;font-weight:bold;color:#111827">📅 ${escapeAttr(dispDate)} (${escapeAttr(dayName)}) — Yes: ${yesStudents.length}</p>`;
 
                 if (!yesStudents.length) {
                     detailHtml += `<p style="font-size:12px;color:#6b7280;margin-top:8px">No student opted Yes on this date.</p>`;
@@ -2141,7 +2182,7 @@
             return `
                 <div class="prev-cal-panel">
                     <div style="display:flex;justify-content:space-between;align-items:center">
-                        <strong style="font-size:13px">Previous Days (${escapeAttr(monthLabel)})</strong>
+                        <strong style="font-size:13px">📅 Previous Days (${escapeAttr(monthLabel)})</strong>
                         <button onclick="toggleAdminPrevCalendar()" style="background:none;border:none;color:#6b7280;font-weight:bold;cursor:pointer;font-size:12px">✕</button>
                     </div>
                     <div class="prev-cal-grid">
@@ -2158,7 +2199,7 @@
             const ctx = getMealContext();
             lastStaffSlotKey = ctx.slotKey;
 
-            let h = `<h2>Mess Menu & Daily Attendance</h2><hr style="margin:10px 0"><div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center"><button class="tab-btn ${activeMealTab === 'Lunch' ? 'active' : ''}" onclick="switchMealTab('Lunch')">Lunch (12:30 PM - 2:00 PM)</button><button class="tab-btn ${activeMealTab === 'Dinner' ? 'active' : ''}" onclick="switchMealTab('Dinner')">Dinner (8:00 PM - 9:30 PM)</button>${isStaff ? `<button class="cal-icon-btn" onclick="toggleAdminPrevCalendar()" title="Previous Days">Calendar</button>` : ''}</div>`;
+            let h = `<h2>🍽️ Mess Menu & Daily Attendance</h2><hr style="margin:10px 0"><div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center"><button class="tab-btn ${activeMealTab === 'Lunch' ? 'active' : ''}" onclick="switchMealTab('Lunch')">☀️ Lunch (12:30 PM - 2:00 PM)</button><button class="tab-btn ${activeMealTab === 'Dinner' ? 'active' : ''}" onclick="switchMealTab('Dinner')">🌙 Dinner (8:00 PM - 9:30 PM)</button>${isStaff ? `<button class="cal-icon-btn" onclick="toggleAdminPrevCalendar()" title="Previous Days">📅</button>` : ''}</div>`;
 
             if (isStaff) {
                 h += buildAdminPreviousDayPanel(ctx);
@@ -2170,10 +2211,10 @@
                 const cur = rec.dateKey === ctx.targetDateKey ? rec : { eat: 'Yes', type: 'Veg', history: rec.history || {} };
                 const dis = !ctx.isOptInWindowOpen ? 'disabled' : '';
 
-                h += `<div style="background:${ctx.isOptInWindowOpen ? '#d1fae5' : '#fee2e2'};padding:15px;border-radius:12px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h4>${ctx.isOptInWindowOpen ? "Tomorrow's" : "Today's"} Meal Opt-In (${ctx.targetDayName}, ${ctx.targetDateDisplay})</h4><span class="badge ${ctx.isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${ctx.isOptInWindowOpen ? 'WINDOW OPEN (6PM - 6AM)' : 'LOCKED (AFTER 6 AM)'}</span></div>
+                h += `<div style="background:${ctx.isOptInWindowOpen ? '#d1fae5' : '#fee2e2'};padding:15px;border-radius:12px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h4>🍱 ${ctx.isOptInWindowOpen ? "Tomorrow's" : "Today's"} Meal Opt-In (${ctx.targetDayName}, ${ctx.targetDateDisplay})</h4><span class="badge ${ctx.isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${ctx.isOptInWindowOpen ? '🟢 WINDOW OPEN (6PM - 6AM)' : '🔒 LOCKED (AFTER 6 AM)'}</span></div>
                 <p style="font-size:12px;color:#4b5563;margin-top:4px">Set whether you will eat in the mess for this meal.</p>
                 <div style="margin-top:12px;display:flex;gap:15px;align-items:center"><label style="font-weight:bold">Will you eat?</label><select id="opt-eat" ${dis} style="padding:6px;border-radius:6px"><option value="Yes" ${cur.eat === 'Yes' ? 'selected' : ''}>Yes, I will eat</option><option value="No" ${cur.eat === 'No' ? 'selected' : ''}>No, Skip Meal</option></select></div>
-                ${ctx.isChoiceDay ? `<div style="margin-top:10px;display:flex;gap:15px;align-items:center;flex-wrap:wrap"><label style="font-weight:bold">Select Preference (${ctx.targetDayName}):</label><label><input type="radio" name="opt-type" value="Veg" ${cur.type !== 'NonVeg' ? 'checked' : ''} ${dis}> Veg</label><label><input type="radio" name="opt-type" value="NonVeg" ${cur.type === 'NonVeg' ? 'checked' : ''} ${dis}> Non-Veg</label></div>` : `<div style="margin-top:10px"><label style="font-weight:bold">Meal Option (${ctx.targetDayName}):</label> <label><input type="radio" name="opt-type" value="Veg" checked ${dis}> Veg Only</label></div>`}
+                ${ctx.isChoiceDay ? `<div style="margin-top:10px;display:flex;gap:15px;align-items:center;flex-wrap:wrap"><label style="font-weight:bold">Select Preference (${ctx.targetDayName}):</label><label><input type="radio" name="opt-type" value="Veg" ${cur.type !== 'NonVeg' ? 'checked' : ''} ${dis}> 🥦 Veg</label><label><input type="radio" name="opt-type" value="NonVeg" ${cur.type === 'NonVeg' ? 'checked' : ''} ${dis}> 🍗 Non-Veg</label></div>` : `<div style="margin-top:10px"><label style="font-weight:bold">Meal Option (${ctx.targetDayName}):</label> <label><input type="radio" name="opt-type" value="Veg" checked ${dis}> 🥦 Veg Only</label></div>`}
                 ${ctx.isOptInWindowOpen ? `<button class="btn" style="margin-top:12px;padding:8px" onclick="saveStudentAttendance('${escapeAttr(docId)}')">Save Meal Choice</button>` : ''}</div>`;
                 h += buildStudentMiniCalendar(rec, ctx);
             }
@@ -2189,10 +2230,10 @@
                 });
                 const menu = (messSchedule[activeMealTab] && messSchedule[activeMealTab][ctx.targetDayName]) || "Not set yet";
 
-                h += `<div style="background:#e0e7ff;padding:15px;border-radius:12px;margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h4>Kitchen Live Count — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)}) • ${escapeAttr(activeMealTab)}</h4><div style="display:flex;gap:6px"><button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px">Print List</button><button onclick="shareWhatsAppSummary(${tot},${veg},${nv},'${escapeAttr(ctx.targetDayName)}','${escapeAttr(ctx.targetDateDisplay)}','${escapeAttr(activeMealTab)}')" style="background:#10b981;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px">WhatsApp</button></div></div>
-                <p style="margin-top:8px;font-size:13px"><strong>Menu:</strong> ${escapeAttr(menu)}</p>
-                <div style="display:flex;gap:15px;margin-top:10px;font-weight:bold;font-size:14px;flex-wrap:wrap"><span>Total Eating: ${tot}</span>|<span style="color:#059669">Veg: ${veg}</span>|<span style="color:#dc2626">Non-Veg: ${nv}</span></div></div>
-                <h4>Sorted Attendance List (Room-wise) — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)})</h4><div style="margin-top:10px">`;
+                h += `<div style="background:#e0e7ff;padding:15px;border-radius:12px;margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h4>📊 Kitchen Live Count — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)}) • ${escapeAttr(activeMealTab)}</h4><div style="display:flex;gap:6px"><button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px">🖨️ Print List</button><button onclick="shareWhatsAppSummary(${tot},${veg},${nv},'${escapeAttr(ctx.targetDayName)}','${escapeAttr(ctx.targetDateDisplay)}','${escapeAttr(activeMealTab)}')" style="background:#10b981;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px">📲 WhatsApp</button></div></div>
+                <p style="margin-top:8px;font-size:13px"><strong>🍽️ Menu:</strong> ${escapeAttr(menu)}</p>
+                <div style="display:flex;gap:15px;margin-top:10px;font-weight:bold;font-size:14px;flex-wrap:wrap"><span>Total Eating: ${tot}</span>|<span style="color:#059669">🥦 Veg: ${veg}</span>|<span style="color:#dc2626">🍗 Non-Veg: ${nv}</span></div></div>
+                <h4>📋 Sorted Attendance List (Room-wise) — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)})</h4><div style="margin-top:10px">`;
 
                 const sorted = todays.sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0));
                 if (!sorted.length) h += `<p style="color:#6b7280;font-size:13px">New cycle started for ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)}). No opt-in entries yet.</p>`;
@@ -2205,7 +2246,7 @@
             h += `<h4>Weekly Schedule</h4><div style="margin-top:10px">`;
             ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].forEach(d => {
                 const t = (messSchedule[activeMealTab] && messSchedule[activeMealTab][d]) || "";
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>${d} (${activeMealTab})</strong>${isStaff ? `<button onclick="editMessMenu('${activeMealTab}','${d}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">Edit</button>` : ''}</div><p style="margin-top:6px;color:#374151">${escapeAttr(t)}</p></div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>📅 ${d} (${activeMealTab})</strong>${isStaff ? `<button onclick="editMessMenu('${activeMealTab}','${d}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button>` : ''}</div><p style="margin-top:6px;color:#374151">${escapeAttr(t)}</p></div>`;
             });
             content.innerHTML = h + `</div>`;
         }
@@ -2260,14 +2301,14 @@
         }
 
         function shareWhatsAppSummary(total, veg, nv, day, date, meal) {
-            const text = `*My Hostel - Attendance Summary*\n*Day & Date:* ${day} (${date})\n*Meal:* ${meal}\n-----------------------------------\n*Total Meal Count:* ${total}\n*Veg Count:* ${veg}\n*Non-Veg Count:* ${nv}\n-----------------------------------\n_Generated by My Hostel Management Portal_`;
+            const text = `*My Hostel - Attendance Summary*\n📅 *Day & Date:* ${day} (${date})\n🍽️ *Meal:* ${meal}\n-----------------------------------\n🍱 *Total Meal Count:* ${total}\n🥦 *Veg Count:* ${veg}\n🍗 *Non-Veg Count:* ${nv}\n-----------------------------------\n_Generated by My Hostel Management Portal_`;
             window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
         }
 
         /* Complaints */
         function renderComplaintBox() {
             const content = document.getElementById('modal-content');
-            let h = `<h2>Complaint Box</h2><hr style="margin:10px 0">`;
+            let h = `<h2>🛠️ Complaint Box</h2><hr style="margin:10px 0">`;
             if (currentUser.role === 'student') {
                 const bedLabel = currentUser.bed ? `, Bed ${currentUser.bed}` : '';
                 h += `<div style="background:#fee2e2;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Submit Complaint (Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)})</h4><textarea id="cmp-text" placeholder="Describe the issue in your room..." style="width:100%;margin:8px 0;padding:8px"></textarea><label style="font-size:12px;font-weight:bold;display:block;margin-bottom:5px">Attach Photo (Optional):</label><input type="file" id="cmp-img" accept="image/*" capture="environment" style="margin-bottom:10px"><button class="btn" id="cmp-sub-btn" onclick="submitComplaintWithStorage()">Submit Complaint</button></div>`;
@@ -2280,7 +2321,7 @@
                 let rem = "";
                 if (res && c.resolvedAt) rem = `(Auto-deletes in ${Math.max(0, Math.floor((864e5 - (Date.now() - c.resolvedAt)) / 36e5))}h)`;
                 const bedTag = c.bed ? `, Bed ${c.bed}` : '';
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(c.room)}${escapeAttr(bedTag)} - ${escapeAttr(c.name)}</strong><span class="badge ${res ? 'badge-resolved' : 'badge-pending'}">${escapeAttr(c.status)} ${rem}</span></div><p style="margin:8px 0">${escapeAttr(c.text)}</p>${c.image ? `<img src="${escapeAttr(c.image)}" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;cursor:pointer" onclick="enlargeImage(this.src)">` : ''}<div style="margin-top:10px;display:flex;gap:10px">${currentUser.role === 'staff' && !res ? `<button class="btn" style="padding:6px;background:#10b981" onclick="resolveComplaint('${escapeAttr(c.firebaseId)}')">Mark Resolved</button>` : ''}${currentUser.role === 'student' && res ? `<button class="btn" style="padding:6px;background:#3b82f6" onclick="resendComplaint('${escapeAttr(c.firebaseId)}')">Resend Complaint</button>` : ''}</div></div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(c.room)}${escapeAttr(bedTag)} - ${escapeAttr(c.name)}</strong><span class="badge ${res ? 'badge-resolved' : 'badge-pending'}">${escapeAttr(c.status)} ${rem}</span></div><p style="margin:8px 0">${escapeAttr(c.text)}</p>${c.image ? `<img src="${escapeAttr(c.image)}" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;cursor:pointer" onclick="enlargeImage(this.src)">` : ''}<div style="margin-top:10px;display:flex;gap:10px">${currentUser.role === 'staff' && !res ? `<button class="btn" style="padding:6px;background:#10b981" onclick="resolveComplaint('${escapeAttr(c.firebaseId)}')">Mark Resolved</button>` : ''}${currentUser.role === 'student' && res ? `<button class="btn" style="padding:6px;background:#3b82f6" onclick="resendComplaint('${escapeAttr(c.firebaseId)}')">🔄 Resend Complaint</button>` : ''}</div></div>`;
             });
             content.innerHTML = h;
         }
@@ -2373,13 +2414,13 @@
         function renderHostelRules() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
-            let h = `<h2>Hostel Rules & Guidelines</h2><hr style="margin:10px 0">`;
+            let h = `<h2>📋 Hostel Rules & Guidelines</h2><hr style="margin:10px 0">`;
             if (st) {
                 h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Add New Hostel Rule</h4><input type="text" id="rule-title" placeholder="Rule Title" style="width:100%;margin:8px 0;padding:8px"><textarea id="rule-content" placeholder="Rule details..." style="width:100%;margin-bottom:8px;padding:8px"></textarea><button class="btn" onclick="addHostelRule()">Add Rule</button></div>`;
             }
             if (!hostelRules.length) h += `<p style="color:#6b7280;font-size:13px">No rules found.</p>`;
             hostelRules.forEach((r, i) => {
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong style="color:var(--primary)">${i + 1}. ${escapeAttr(r.title)}</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editHostelRuleById('${escapeAttr(r.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">Edit</button><button onclick="deleteHostelRule('${escapeAttr(r.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">Delete</button></div>` : ''}</div><p style="margin-top:6px;color:#374151">${escapeAttr(r.content)}</p></div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong style="color:var(--primary)">${i + 1}. ${escapeAttr(r.title)}</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editHostelRuleById('${escapeAttr(r.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteHostelRule('${escapeAttr(r.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div>` : ''}</div><p style="margin-top:6px;color:#374151">${escapeAttr(r.content)}</p></div>`;
             });
             content.innerHTML = h;
         }
@@ -2418,7 +2459,7 @@
         function renderRoomAllocation() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
-            let h = `<h2>Room Allocation Dashboard</h2><hr style="margin:10px 0">`;
+            let h = `<h2>🚪 Room Allocation Dashboard</h2><hr style="margin:10px 0">`;
             if (st) {
                 h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Manage Room Allocation (3 Beds per Room)</h4><label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Floor:</label><select id="alloc-floor" onchange="updateRooms('alloc-floor','alloc-room')" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select><label style="font-size:12px;font-weight:bold;display:block">Select Room:</label><select id="alloc-room" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Room --</option></select><input type="text" id="alloc-stu1" placeholder="Bed 1 Student Name" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu2" placeholder="Bed 2 Student Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu3" placeholder="Bed 3 Student Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><button class="btn" style="margin-top:8px" onclick="saveRoomAllocation()">Save Allocation</button></div>`;
             }
@@ -2426,7 +2467,7 @@
             if (!roomAllocations.length) h += `<p style="color:#6b7280;font-size:13px">No room allocations added yet.</p>`;
             [...roomAllocations].sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0)).forEach(ra => {
                 const b3 = ra.student3 || "Vacant";
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">Edit</button><button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">Delete</button></div>` : ''}</div><p style="margin-top:6px;font-size:13px"><strong>Bed 1:</strong> ${escapeAttr(ra.student1)} | <strong>Bed 2:</strong> ${escapeAttr(ra.student2)} | <strong>Bed 3:</strong> ${escapeAttr(b3)}</p></div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div>` : ''}</div><p style="margin-top:6px;font-size:13px">🛏️ <strong>Bed 1:</strong> ${escapeAttr(ra.student1)} | 🛏️ <strong>Bed 2:</strong> ${escapeAttr(ra.student2)} | 🛏️ <strong>Bed 3:</strong> ${escapeAttr(b3)}</p></div>`;
             });
             content.innerHTML = h + `</div>`;
         }
@@ -2481,7 +2522,7 @@
         /* Fees */
         function renderFeePayments() {
             const content = document.getElementById('modal-content');
-            let h = `<h2>Fee & Payments</h2><hr style="margin:10px 0">`;
+            let h = `<h2>💰 Fee & Payments</h2><hr style="margin:10px 0">`;
             if (currentUser.role === 'student') {
                 const f = feeRecords[currentUser.room] || { name: currentUser.name, status: "Pending", annualFee: "₹45,000", messDues: "₹1,200" };
                 h += `<div class="item-card" style="border-left-color:#10b981"><h3>Private Record: Room ${escapeAttr(currentUser.room)}</h3><p style="margin-top:8px"><strong>Student Name:</strong> ${escapeAttr(f.name || currentUser.name)}</p><p><strong>Annual Fee:</strong> ${escapeAttr(f.annualFee)}</p><p><strong>Mess Dues:</strong> ${escapeAttr(f.messDues)}</p><p style="margin-top:8px"><strong>Payment Status:</strong> <span class="badge ${f.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(f.status)}</span></p></div>`;
@@ -2491,7 +2532,7 @@
                 if (!ks.length) h += `<p style="color:#6b7280;font-size:13px">No fee records found.</p>`;
                 ks.forEach(rm => {
                     const r = feeRecords[rm];
-                    h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(rm)} - ${escapeAttr(r.name)}</strong><span class="badge ${r.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(r.status)}</span></div><p style="margin-top:4px;font-size:13px">Annual Fee: ${escapeAttr(r.annualFee)} | Mess Dues: ${escapeAttr(r.messDues)}</p><div style="margin-top:8px;display:flex;gap:10px"><button onclick="editFeeRecord('${escapeAttr(rm)}')" style="background:#3b82f6;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">Edit</button><button onclick="deleteFeeRecord('${escapeAttr(rm)}')" style="background:#ef4444;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">Delete</button></div></div>`;
+                    h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(rm)} - ${escapeAttr(r.name)}</strong><span class="badge ${r.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(r.status)}</span></div><p style="margin-top:4px;font-size:13px">Annual Fee: ${escapeAttr(r.annualFee)} | Mess Dues: ${escapeAttr(r.messDues)}</p><div style="margin-top:8px;display:flex;gap:10px"><button onclick="editFeeRecord('${escapeAttr(rm)}')" style="background:#3b82f6;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteFeeRecord('${escapeAttr(rm)}')" style="background:#ef4444;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div></div>`;
                 });
                 h += `</div>`;
             }
@@ -2548,7 +2589,7 @@
         /* Out-pass */
         function renderOutPass() {
             const content = document.getElementById('modal-content');
-            let h = `<h2>Out-Pass / Leave Application</h2><hr style="margin:10px 0">`;
+            let h = `<h2>📝 Out-Pass / Leave Application</h2><hr style="margin:10px 0">`;
             if (currentUser.role === 'student') {
                 h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Apply for Leave Pass</h4><label style="font-size:12px;font-weight:bold;margin-top:8px;display:block">Select Preset Reason:</label><select id="leave-preset" onchange="autoFillReason()" style="width:100%;margin:6px 0;padding:8px"><option value="">-- Select or Type Below --</option><option>Home Visit (Going to hometown)</option><option>Emergency / Medical Reason</option><option>Local Outing (Shopping / Work)</option><option>Personal Work</option></select><label style="font-size:12px;font-weight:bold;margin-top:8px;display:block">Reason Details (Editable):</label><textarea id="leave-reason" placeholder="Write or edit reason for leave..." style="width:100%;margin:6px 0;padding:8px"></textarea><div style="display:flex;gap:10px;margin:8px 0;flex-wrap:wrap"><div style="flex:1;min-width:140px"><label style="font-size:12px;font-weight:bold">From Date:</label><input type="date" id="leave-from" style="width:100%;padding:8px"></div><div style="flex:1;min-width:140px"><label style="font-size:12px;font-weight:bold">To Date:</label><input type="date" id="leave-to" style="width:100%;padding:8px"></div></div><button class="btn" style="margin-top:10px" onclick="submitLeaveRequest()">Submit Leave Application</button></div>`;
             }
@@ -2559,7 +2600,7 @@
             list.forEach(op => {
                 const bc = op.status === 'Approved' ? 'badge-resolved' : op.status === 'Rejected' ? 'badge-rejected' : 'badge-pending';
                 const bedTag = op.bed ? `, Bed ${op.bed}` : '';
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>${escapeAttr(op.name)} (Room ${escapeAttr(op.room)}${escapeAttr(bedTag)})</strong><span class="badge ${bc}">${escapeAttr(op.status)}</span></div><p style="margin:6px 0"><strong>Reason:</strong> ${escapeAttr(op.reason)}</p><p style="font-size:12px;color:#6b7280"><strong>Duration:</strong> ${escapeAttr(op.fromDate)} to ${escapeAttr(op.toDate)}</p>${op.decidedBy ? `<p style="font-size:11px;color:#6b7280;margin-top:4px">By: ${escapeAttr(op.decidedBy)}</p>` : ''}${currentUser.role === 'staff' && op.status === 'Pending' ? `<div style="margin-top:10px;display:flex;gap:10px"><button class="btn" style="background:#10b981;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Approved')">Approve</button><button class="btn" style="background:#ef4444;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Rejected')">Reject</button></div>` : ''}</div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>${escapeAttr(op.name)} (Room ${escapeAttr(op.room)}${escapeAttr(bedTag)})</strong><span class="badge ${bc}">${escapeAttr(op.status)}</span></div><p style="margin:6px 0"><strong>Reason:</strong> ${escapeAttr(op.reason)}</p><p style="font-size:12px;color:#6b7280">📅 <strong>Duration:</strong> ${escapeAttr(op.fromDate)} to ${escapeAttr(op.toDate)}</p>${op.decidedBy ? `<p style="font-size:11px;color:#6b7280;margin-top:4px">By: ${escapeAttr(op.decidedBy)}</p>` : ''}${currentUser.role === 'staff' && op.status === 'Pending' ? `<div style="margin-top:10px;display:flex;gap:10px"><button class="btn" style="background:#10b981;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Approved')">Approve</button><button class="btn" style="background:#ef4444;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Rejected')">Reject</button></div>` : ''}</div>`;
             });
             content.innerHTML = h + `</div>`;
         }
@@ -2610,14 +2651,14 @@
         function renderStaffDirectory() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
-            let h = `<h2>Staff Directory & Emergency Contacts</h2><hr style="margin:10px 0">`;
+            let h = `<h2>👥 Staff Directory & Emergency Contacts</h2><hr style="margin:10px 0">`;
             if (st) {
                 h += `<div style="background:#e0e7ff;padding:12px;border-radius:8px;margin-bottom:15px"><h4>Add New Staff Contact</h4><input type="text" id="add-staff-role" placeholder="Staff Role/Position" style="width:100%;margin:6px 0;padding:8px"><input type="text" id="add-staff-name" placeholder="Staff Person Name" style="width:100%;margin:6px 0;padding:8px"><div class="phone-input-wrap" style="margin:6px 0"><span class="phone-prefix">+91</span><input type="tel" id="add-staff-phone" maxlength="14" inputmode="numeric" placeholder="10-digit mobile number" oninput="sanitizeIndianPhoneInput(this)"></div><button class="btn" style="margin-top:6px" onclick="addStaffMember()">Add Staff Contact</button></div>`;
             }
             staffMembers.forEach(s => {
                 const dispPhone = formatPhoneDisplay(s.phone);
                 const telHref = keyOf(s.phone) ? `+${keyOf(s.phone)}` : s.phone;
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><strong>${escapeAttr(s.role)}:</strong> ${escapeAttr(s.name)}<br><small style="color:#6b7280">Phone: ${escapeAttr(dispPhone)}</small></div><div style="display:flex;gap:8px;align-items:center"><a href="tel:${escapeAttr(telHref)}" class="call-btn">Call</a>${st ? `<button onclick="editStaffMemberById('${escapeAttr(s.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">Edit</button><button onclick="deleteStaffMember('${escapeAttr(s.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">Delete</button>` : ''}</div></div></div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><strong>${escapeAttr(s.role)}:</strong> ${escapeAttr(s.name)}<br><small style="color:#6b7280">📞 ${escapeAttr(dispPhone)}</small></div><div style="display:flex;gap:8px;align-items:center"><a href="tel:${escapeAttr(telHref)}" class="call-btn">📞 Call</a>${st ? `<button onclick="editStaffMemberById('${escapeAttr(s.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️</button><button onclick="deleteStaffMember('${escapeAttr(s.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️</button>` : ''}</div></div></div>`;
             });
             content.innerHTML = h;
         }
