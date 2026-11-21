@@ -203,6 +203,37 @@
             box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
 
+        .phone-input-wrap {
+            display: flex;
+            align-items: center;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .phone-input-wrap:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .phone-prefix {
+            background: #f3f4f6;
+            color: #111827;
+            font-weight: 700;
+            font-size: 15px;
+            padding: 12px 14px;
+            border-right: 1px solid #d1d5db;
+            user-select: none;
+        }
+
+        .phone-input-wrap input {
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            flex: 1;
+        }
+
         .btn {
             background: var(--primary);
             color: #fff;
@@ -616,6 +647,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, push, onValue, update, remove, get, child, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBUaUZvWZuOOhFGlfAmIC6Hdse0UcGvA3s",
@@ -629,6 +661,7 @@
 
         const app = initializeApp(firebaseConfig);
         window.db = getDatabase(app);
+        const auth = getAuth(app);
 
         Object.assign(window, {
             rtdbRef: ref,
@@ -642,9 +675,43 @@
             rtdbOnDisconnect: onDisconnect
         });
 
-        if (typeof window.initAppAfterFirebase === "function") {
-            window.initAppAfterFirebase();
-        }
+        let authReadyPromise = null;
+        window.ensureFirebaseAuth = function () {
+            if (auth.currentUser) return Promise.resolve(auth.currentUser);
+            if (!authReadyPromise) {
+                authReadyPromise = new Promise((resolve, reject) => {
+                    const unsub = onAuthStateChanged(auth, async user => {
+                        if (user) {
+                            unsub();
+                            resolve(user);
+                        } else {
+                            try {
+                                const cred = await signInAnonymously(auth);
+                                unsub();
+                                resolve(cred.user);
+                            } catch (err) {
+                                authReadyPromise = null;
+                                reject(err);
+                            }
+                        }
+                    });
+                });
+            }
+            return authReadyPromise;
+        };
+
+        window.ensureFirebaseAuth()
+            .then(() => {
+                if (typeof window.initAppAfterFirebase === "function") {
+                    window.initAppAfterFirebase();
+                }
+            })
+            .catch(err => {
+                console.error("Firebase Auth error:", err);
+                if (typeof window.initAppAfterFirebase === "function") {
+                    window.initAppAfterFirebase();
+                }
+            });
     </script>
 </head>
 <body>
@@ -688,12 +755,15 @@
                     <input type="text" id="stu-name" placeholder="Enter full name">
                 </div>
                 <div class="form-group">
-                    <label>Contact Number</label>
-                    <input type="tel" id="stu-phone" placeholder="Enter mobile number">
+                    <label>Contact Number (10-digit Indian Number)</label>
+                    <div class="phone-input-wrap">
+                        <span class="phone-prefix">+91</span>
+                        <input type="tel" id="stu-phone" maxlength="14" inputmode="numeric" placeholder="Enter 10-digit mobile number" oninput="sanitizeIndianPhoneInput(this)">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Select Floor</label>
-                    <select id="stu-floor" onchange="updateRooms('stu-floor','stu-room')">
+                    <select id="stu-floor" onchange="updateRooms('stu-floor','stu-room'); handleRoomSelectionChange()">
                         <option value="">-- Choose Floor --</option>
                         <option value="ground">Ground Floor (101 - 135)</option>
                         <option value="first">First Floor (201 - 235)</option>
@@ -702,15 +772,28 @@
                 </div>
                 <div class="form-group">
                     <label>Select Room Number</label>
-                    <select id="stu-room">
+                    <select id="stu-room" onchange="handleRoomSelectionChange()">
                         <option value="">-- Choose Room --</option>
                     </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="stu-room-code-group" style="display:none">
                     <label>Room Verification Code</label>
-                    <input type="password" id="stu-code" placeholder="Enter room verification code">
+                    <input type="password" id="stu-code" placeholder="Enter room verification code" oninput="tryAutoStudentLogin()">
                 </div>
-                <button class="btn" id="stu-login-btn" onclick="handleStudentLogin()">Login</button>
+                <div class="form-group" id="stu-bed-group" style="display:none">
+                    <label>Select Bed Number (3 Beds per Room)</label>
+                    <select id="stu-bed" onchange="handleBedSelectionChange()">
+                        <option value="">-- Choose Bed --</option>
+                        <option value="1">Bed 1</option>
+                        <option value="2">Bed 2</option>
+                        <option value="3">Bed 3</option>
+                    </select>
+                </div>
+                <div class="form-group" id="stu-bed-code-group" style="display:none">
+                    <label>Bed Verification Code</label>
+                    <input type="password" id="stu-bed-code" placeholder="Enter bed verification code" oninput="tryAutoStudentLogin()">
+                </div>
+                <button class="btn" id="stu-login-btn" onclick="handleStudentLogin(false)">Login</button>
                 <br><a class="back-link" onclick="showScreen('role-screen')">&larr; Back</a>
             </div>
 
@@ -721,8 +804,11 @@
                     <input type="text" id="staff-name" placeholder="Enter staff name">
                 </div>
                 <div class="form-group">
-                    <label>Contact Number</label>
-                    <input type="tel" id="staff-phone" placeholder="Mobile number">
+                    <label>Contact Number (10-digit Indian Number)</label>
+                    <div class="phone-input-wrap">
+                        <span class="phone-prefix">+91</span>
+                        <input type="tel" id="staff-phone" maxlength="14" inputmode="numeric" placeholder="Enter 10-digit mobile number" oninput="sanitizeIndianPhoneInput(this)">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Position</label>
@@ -739,17 +825,17 @@
                     <label>Staff Secret Code</label>
                     <input type="password" id="staff-code" placeholder="Enter 7-digit secret security code">
                 </div>
-                <button class="btn" onclick="handleStaffLogin()">Login</button>
+                <button class="btn" id="staff-login-btn" onclick="handleStaffLogin()">Login</button>
                 <br><a class="back-link" onclick="showScreen('role-screen')">&larr; Back</a>
             </div>
 
             <div id="dashboard-screen" class="form-screen">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;flex-wrap:wrap;gap:8px">
                     <div>
                         <h3 id="user-display-name">Welcome!</h3>
                         <p id="user-display-role" style="color:var(--text-light);font-size:13px">Role: Resident</p>
                     </div>
-                    <span id="user-tag" style="background:#e0e7ff;color:#4f46e5;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:bold">Room: --</span>
+                    <span id="user-tag" style="background:#e0e7ff;color:#4f46e5;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:bold">Room: -- | Bed: --</span>
                 </div>
 
                 <div class="dashboard-grid">
@@ -821,9 +907,26 @@
             "Kitchen Mess Cook": "3214567"
         };
 
+        // Non-serial random bed code generator (seeded deterministically per room + bed 1..3)
+        function getRandomBedCode(room, bed) {
+            const b = String(bed);
+            if (!["1", "2", "3"].includes(b)) return "";
+            const rNum = parseInt(room, 10) || 100;
+            const bOffset = b === "1" ? 739 : b === "2" ? 413 : 887;
+            let h = ((rNum * 2654435761) ^ (bOffset * 2246822519)) >>> 0;
+            const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            let out = "";
+            for (let i = 0; i < 6; i++) {
+                h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
+                out += chars[h % chars.length];
+            }
+            return out;
+        }
+
         let currentUser = null;
         let activeMealTab = "Lunch";
         let editingFeeRoom = null;
+        let studentLoginInFlight = false;
 
         let adminCalOpen = false;
         let selectedPrevDateKey = null;
@@ -836,6 +939,7 @@
         let staffMembers = [];
         let hostelRules = [];
         let registeredStudents = {};
+        let loginLocks = {};
         let blockedUsers = {};
         let messAttendance = {};
         let presence = {};
@@ -866,7 +970,62 @@
         let lastReadPendingOutpasses = parseInt(ls('myhostel_read_outpasses', '0'), 10) || 0;
         let unreadStudentOutpassAlerts = 0;
 
-        const keyOf = p => String(p || '').replace(/[^0-9]/g, '');
+        /* Indian 10-digit mobile number helpers (+91 prefix) */
+        function extractIndian10Digit(raw) {
+            let digits = String(raw || '').replace(/[^0-9]/g, '');
+            if (digits.length === 12 && digits.startsWith('91')) {
+                digits = digits.slice(2);
+            } else if (digits.length === 11 && digits.startsWith('0')) {
+                digits = digits.slice(1);
+            }
+            return digits;
+        }
+
+        function isValidIndian10Digit(tenDigits) {
+            return /^[6-9][0-9]{9}$/.test(String(tenDigits || ''));
+        }
+
+        function sanitizeIndianPhoneInput(el) {
+            if (!el) return;
+            let digits = String(el.value || '').replace(/[^0-9]/g, '');
+            if (digits.startsWith('91') && digits.length > 10) {
+                digits = digits.slice(2);
+            } else if (digits.startsWith('0') && digits.length > 10) {
+                digits = digits.slice(1);
+            }
+            if (digits.length > 10) digits = digits.slice(0, 10);
+            el.value = digits;
+        }
+
+        function parseAndValidateIndianPhone(rawInput) {
+            const ten = extractIndian10Digit(rawInput);
+            if (!isValidIndian10Digit(ten)) {
+                return {
+                    ok: false,
+                    ten: "",
+                    formatted: "",
+                    message: "कृपया वैलिड 10-अंकों का इंडियन मोबाइल नंबर (+91 के बाद 6, 7, 8 या 9 से शुरू होने वाले 10 अंक) डालें।"
+                };
+            }
+            return {
+                ok: true,
+                ten,
+                formatted: "+91" + ten,
+                message: ""
+            };
+        }
+
+        const keyOf = p => {
+            const ten = extractIndian10Digit(p);
+            if (ten.length === 10) return "91" + ten;
+            const fallback = String(p || '').replace(/[^0-9]/g, '');
+            return fallback.startsWith('91') ? fallback : (fallback ? "91" + fallback : "");
+        };
+
+        const formatPhoneDisplay = p => {
+            const ten = extractIndian10Digit(p);
+            return ten.length === 10 ? `+91 ${ten}` : String(p || '');
+        };
 
         const escapeAttr = s => String(s == null ? "" : s)
             .replace(/&/g, "&amp;")
@@ -1104,17 +1263,18 @@
                 presenceKey = k;
                 const r = window.rtdbRef(window.db, 'presence/' + k);
                 try { window.rtdbOnDisconnect(r).remove(); } catch (e) {}
-                window.rtdbSet(r, { name: currentUser.name, room: String(currentUser.room), ts: Date.now() }).catch(() => {});
+                window.rtdbSet(r, { name: currentUser.name, room: String(currentUser.room), bed: String(currentUser.bed || ''), ts: Date.now() }).catch(() => {});
             });
         }
 
-        function announcePresenceNow() {
+        async function announcePresenceNow() {
             if (!currentUser || currentUser.role !== 'student' || !window.db) return;
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             const k = keyOf(currentUser.phone);
             presenceKey = k;
             const r = window.rtdbRef(window.db, 'presence/' + k);
             try { window.rtdbOnDisconnect(r).remove(); } catch (e) {}
-            window.rtdbSet(r, { name: currentUser.name, room: String(currentUser.room), ts: Date.now() }).catch(() => {});
+            window.rtdbSet(r, { name: currentUser.name, room: String(currentUser.room), bed: String(currentUser.bed || ''), ts: Date.now() }).catch(() => {});
         }
 
         window.initAppAfterFirebase = function () {
@@ -1141,7 +1301,6 @@
         };
 
         resetRefreshState();
-        if (window.db && !rtdbListenersStarted) window.initAppAfterFirebase();
 
         const toList = d => d ? Object.keys(d).map(k => ({ firebaseId: k, ...d[k] })) : [];
 
@@ -1223,6 +1382,11 @@
             L("registered_students", s => {
                 registeredStudents = s.val() || {};
                 updateNotificationBadges();
+                refreshActiveModuleByName('MH Live');
+            });
+
+            L("login_locks", s => {
+                loginLocks = s.val() || {};
                 refreshActiveModuleByName('MH Live');
             });
 
@@ -1331,11 +1495,11 @@
 
         async function initializeDefaultStaff() {
             for (const s of [
-                { id: 1, role: "Chief Warden", name: "Dr. Rajesh Kumar", phone: "9876543210" },
-                { id: 2, role: "Hostel Incharge", name: "Mr. Anil Sharma", phone: "9123456789" },
-                { id: 3, role: "Hostel Supervisor", name: "Mr. Manoj Das", phone: "9938123456" },
-                { id: 4, role: "Hostel Administrative", name: "Office Desk", phone: "0672422001" },
-                { id: 5, role: "Kitchen Mess Cook", name: "Chef Suresh", phone: "9861234567" }
+                { id: 1, role: "Chief Warden", name: "Dr. Rajesh Kumar", phone: "+919876543210" },
+                { id: 2, role: "Hostel Incharge", name: "Mr. Anil Sharma", phone: "+919123456789" },
+                { id: 3, role: "Hostel Supervisor", name: "Mr. Manoj Das", phone: "+919938123456" },
+                { id: 4, role: "Hostel Administrative", name: "Office Desk", phone: "+919861002201" },
+                { id: 5, role: "Kitchen Mess Cook", name: "Chef Suresh", phone: "+919861234567" }
             ]) {
                 await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "staff")), s);
             }
@@ -1380,10 +1544,11 @@
             document.getElementById('header-user-badge').style.display = 'flex';
             const $ = id => document.getElementById(id);
             if (currentUser.role === 'student') {
-                $('header-user-info').innerText = `${currentUser.name} (Rm: ${currentUser.room})`;
+                const bedText = currentUser.bed ? ` | Bed ${currentUser.bed}` : '';
+                $('header-user-info').innerText = `${currentUser.name} (Rm: ${currentUser.room}${bedText})`;
                 $('user-display-name').innerText = currentUser.name;
                 $('user-display-role').innerText = "Student Resident";
-                $('user-tag').innerText = "Room: " + currentUser.room;
+                $('user-tag').innerText = `Room: ${currentUser.room}${bedText}`;
             } else {
                 $('header-user-info').innerText = `${currentUser.name} (${currentUser.position})`;
                 $('user-display-name').innerText = currentUser.name;
@@ -1417,37 +1582,177 @@
             }
         }
 
-        async function handleStudentLogin() {
+        function handleRoomSelectionChange() {
+            const roomVal = document.getElementById('stu-room').value;
+            const roomCodeGrp = document.getElementById('stu-room-code-group');
+            const bedGrp = document.getElementById('stu-bed-group');
+            const bedCodeGrp = document.getElementById('stu-bed-code-group');
+
+            if (roomVal) {
+                roomCodeGrp.style.display = 'block';
+                bedGrp.style.display = 'block';
+            } else {
+                roomCodeGrp.style.display = 'none';
+                bedGrp.style.display = 'none';
+                bedCodeGrp.style.display = 'none';
+                document.getElementById('stu-bed').value = '';
+                document.getElementById('stu-code').value = '';
+                document.getElementById('stu-bed-code').value = '';
+            }
+        }
+
+        function handleBedSelectionChange() {
+            const bedVal = document.getElementById('stu-bed').value;
+            const bedCodeGrp = document.getElementById('stu-bed-code-group');
+            if (bedVal) {
+                bedCodeGrp.style.display = 'block';
+            } else {
+                bedCodeGrp.style.display = 'none';
+                document.getElementById('stu-bed-code').value = '';
+            }
+            tryAutoStudentLogin();
+        }
+
+        function tryAutoStudentLogin() {
+            if (studentLoginInFlight) return;
             const name = document.getElementById('stu-name').value.trim();
-            const phone = document.getElementById('stu-phone').value.trim();
+            const rawPhone = document.getElementById('stu-phone').value.trim();
             const room = document.getElementById('stu-room').value;
             const code = document.getElementById('stu-code').value.trim();
+            const bed = document.getElementById('stu-bed').value;
+            const bedCode = document.getElementById('stu-bed-code').value.trim();
 
-            if (!name || !phone || !room || !code) return alert("Please fill all details.");
-            if (code !== String(room) + "0") return alert("Invalid room verification code!");
-            const k = keyOf(phone);
-            if (!k) return alert("Please enter a valid contact number.");
+            if (!name || !rawPhone || !room || !code || !bed || !bedCode) return;
+            const phoneCheck = parseAndValidateIndianPhone(rawPhone);
+            if (!phoneCheck.ok) return;
 
+            const expectedRoomCode = String(room) + "0";
+            const expectedBedCode = getRandomBedCode(room, bed);
+            if (code === expectedRoomCode && bedCode === expectedBedCode) {
+                handleStudentLogin(true);
+            }
+        }
+
+        // One-number = one-login check
+        async function claimSingleNumberLogin(phoneKey, candidate) {
+            const lockRef = window.rtdbRef(window.db, `login_locks/${phoneKey}`);
+            const snap = await window.rtdbGet(lockRef);
+            const existing = snap.val();
+
+            if (existing && existing.locked) {
+                const sameRole = existing.role === candidate.role;
+                const sameName = String(existing.name || '').trim().toLowerCase() === String(candidate.name || '').trim().toLowerCase();
+                const sameIdentity = candidate.role === 'student'
+                    ? (sameRole && sameName && String(existing.room || '') === String(candidate.room || '') && String(existing.bed || '') === String(candidate.bed || ''))
+                    : (sameRole && sameName && String(existing.position || '') === String(candidate.position || ''));
+
+                if (!sameIdentity) {
+                    const holderInfo = existing.role === 'student'
+                        ? `${existing.name || 'Student'} (Room ${existing.room || '--'}, Bed ${existing.bed || '--'})`
+                        : `${existing.name || 'Staff'} (${existing.position || 'Staff'})`;
+                    return {
+                        allowed: false,
+                        message: `इस नंबर (+91 ${phoneKey.slice(2)}) पर पहले से ही लॉगिन है! (${holderInfo})\nएक नंबर से केवल एक ही लॉगिन मान्य है।`
+                    };
+                }
+
+                await window.rtdbUpdate(lockRef, {
+                    lastLoginAt: Date.now()
+                });
+                return { allowed: true };
+            }
+
+            await window.rtdbSet(lockRef, {
+                locked: true,
+                role: candidate.role,
+                name: candidate.name,
+                room: candidate.role === 'student' ? String(candidate.room) : null,
+                bed: candidate.role === 'student' ? String(candidate.bed) : null,
+                position: candidate.role === 'staff' ? String(candidate.position) : null,
+                phone: "+91" + phoneKey.slice(2),
+                firstLoginAt: Date.now(),
+                lastLoginAt: Date.now()
+            });
+            return { allowed: true };
+        }
+
+        async function handleStudentLogin(isAuto = false) {
+            if (studentLoginInFlight) return;
+
+            const name = document.getElementById('stu-name').value.trim();
+            const rawPhone = document.getElementById('stu-phone').value.trim();
+            const room = document.getElementById('stu-room').value;
+            const code = document.getElementById('stu-code').value.trim();
+            const bed = document.getElementById('stu-bed').value;
+            const bedCode = document.getElementById('stu-bed-code').value.trim();
+
+            if (!name || !rawPhone || !room || !code || !bed || !bedCode) {
+                if (isAuto) return;
+                return alert("Please fill name, mobile number, room, room code, bed number, and bed code.");
+            }
+
+            const phoneCheck = parseAndValidateIndianPhone(rawPhone);
+            if (!phoneCheck.ok) {
+                if (isAuto) return;
+                return alert(phoneCheck.message);
+            }
+
+            if (code !== String(room) + "0") {
+                if (isAuto) return;
+                return alert("Invalid room verification code!");
+            }
+
+            if (bedCode !== getRandomBedCode(room, bed)) {
+                if (isAuto) return;
+                return alert(`Invalid verification code for Bed ${bed}!`);
+            }
+
+            const k = "91" + phoneCheck.ten;
             const btn = document.getElementById('stu-login-btn');
+            studentLoginInFlight = true;
             btn.disabled = true;
             btn.innerText = "Checking...";
 
             try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
                 const snap = await window.rtdbGet(window.rtdbRef(window.db, `blocked_users/${k}`));
                 const b = snap.val();
                 if (b && b.blocked) {
+                    studentLoginInFlight = false;
                     btn.disabled = false;
                     btn.innerText = "Login";
                     return alert("Access Denied: Your account has been blocked by the hostel admin.");
                 }
 
-                currentUser = { role: 'student', name, phone, room: String(room) };
+                const lockCheck = await claimSingleNumberLogin(k, {
+                    role: 'student',
+                    name,
+                    room: String(room),
+                    bed: String(bed)
+                });
+                if (!lockCheck.allowed) {
+                    studentLoginInFlight = false;
+                    btn.disabled = false;
+                    btn.innerText = "Login";
+                    return alert(lockCheck.message);
+                }
+
+                currentUser = {
+                    role: 'student',
+                    name,
+                    phone: phoneCheck.formatted,
+                    room: String(room),
+                    bed: String(bed)
+                };
                 unreadStudentOutpassAlerts = 0;
                 try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
+
                 await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${k}`), {
                     name,
-                    phone,
+                    phone: phoneCheck.formatted,
                     room: String(room),
+                    bed: String(bed),
                     lastLogin: Date.now()
                 });
 
@@ -1458,28 +1763,59 @@
                 announcePresenceNow();
             } catch (e) {
                 currentUser = null;
-                alert("Login error: " + e.message);
+                if (!isAuto) alert("Login error: " + e.message);
             }
 
+            studentLoginInFlight = false;
             btn.disabled = false;
             btn.innerText = "Login";
         }
 
         async function handleStaffLogin() {
             const name = document.getElementById('staff-name').value.trim();
-            const phone = document.getElementById('staff-phone').value.trim();
+            const rawPhone = document.getElementById('staff-phone').value.trim();
             const role = document.getElementById('staff-role').value;
             const code = document.getElementById('staff-code').value.trim();
 
-            if (!name || !phone || !role || !code) return alert("Please fill all staff credentials.");
+            if (!name || !rawPhone || !role || !code) return alert("Please fill all staff credentials.");
+
+            const phoneCheck = parseAndValidateIndianPhone(rawPhone);
+            if (!phoneCheck.ok) return alert(phoneCheck.message);
+
             if (code !== staffCodes[role]) return alert("Incorrect 7-digit secure code for " + role + "!");
 
-            currentUser = { role: 'staff', position: role, name, phone };
-            try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
-            requestNotificationPermission();
-            getAudio();
-            setupUserUI();
-            showScreen('dashboard-screen');
+            const btn = document.getElementById('staff-login-btn');
+            btn.disabled = true;
+            btn.innerText = "Checking...";
+
+            try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
+                const k = "91" + phoneCheck.ten;
+                const lockCheck = await claimSingleNumberLogin(k, {
+                    role: 'staff',
+                    name,
+                    position: role
+                });
+                if (!lockCheck.allowed) {
+                    btn.disabled = false;
+                    btn.innerText = "Login";
+                    return alert(lockCheck.message);
+                }
+
+                currentUser = { role: 'staff', position: role, name, phone: phoneCheck.formatted };
+                try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
+                requestNotificationPermission();
+                getAudio();
+                setupUserUI();
+                showScreen('dashboard-screen');
+            } catch (e) {
+                currentUser = null;
+                alert("Login error: " + e.message);
+            }
+
+            btn.disabled = false;
+            btn.innerText = "Login";
         }
 
         function logoutSession() {
@@ -1544,29 +1880,68 @@
                 keys.sort((a, b) => (parseInt(registeredStudents[a].room) || 0) - (parseInt(registeredStudents[b].room) || 0)).forEach(k => {
                     const st = registeredStudents[k];
                     const bl = blockedUsers[k] && blockedUsers[k].blocked;
+                    const locked = !!(loginLocks[k] && loginLocks[k].locked);
                     const on = !!presence[k];
+                    const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
                     html += `
                         <div class="item-card" style="border-left-color:${bl ? '#ef4444' : '#10b981'};text-align:left">
                             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
                                 <div>
-                                    <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)})<br>
-                                    <small style="color:#6b7280">📞 ${escapeAttr(st.phone)}</small>
+                                    <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)}${escapeAttr(bedInfo)})<br>
+                                    <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
                                 </div>
-                                <div>
+                                <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
                                     <span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
-                                    <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;margin-left:5px">${bl ? 'Unblock' : 'Block'}</button>
+                                    ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
+                                    <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>
                                 </div>
                             </div>
                         </div>`;
                 });
+
+                html += `
+                    <hr style="margin:20px 0">
+                    <h4 style="color:var(--primary);margin-bottom:8px;text-align:left">🔑 Bed Verification Codes Lookup</h4>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;text-align:left">
+                        <input type="number" id="lookup-room-input" placeholder="Room No. (e.g. 229)" style="flex:1;min-width:140px;padding:8px;border:1px solid #d1d5db;border-radius:8px">
+                        <button type="button" onclick="showRoomBedCodes()" style="background:var(--primary);color:#fff;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:13px">Check Bed Codes</button>
+                    </div>
+                    <div id="lookup-bed-codes-result" style="margin-top:10px;text-align:left"></div>`;
             }
 
             html += `</div>`;
             content.innerHTML = html;
         }
 
+        function showRoomBedCodes() {
+            const inp = document.getElementById('lookup-room-input');
+            const out = document.getElementById('lookup-bed-codes-result');
+            if (!inp || !out) return;
+            const rm = parseInt(inp.value, 10);
+            if (!rm || rm < 101 || rm > 335) {
+                out.innerHTML = `<p style="color:#dc2626;font-size:12px">Enter a valid room number (101–335).</p>`;
+                return;
+            }
+            out.innerHTML = `
+                <div class="item-card" style="padding:10px 12px;margin-bottom:0">
+                    <strong>Room ${rm}</strong> (Room Code: <code>${rm}0</code>)<br>
+                    <small style="color:#374151">Bed 1: <strong>${getRandomBedCode(rm, 1)}</strong> | Bed 2: <strong>${getRandomBedCode(rm, 2)}</strong> | Bed 3: <strong>${getRandomBedCode(rm, 3)}</strong></small>
+                </div>`;
+        }
+
+        async function releaseNumberLock(k) {
+            try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                await window.rtdbRemove(window.rtdbRef(window.db, `login_locks/${k}`));
+                showToast("Number login lock released.");
+            } catch (e) {
+                alert("Error: " + e.message);
+            }
+        }
+
         async function toggleBlockStudent(k, block) {
             try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 if (block) {
                     await window.rtdbSet(window.rtdbRef(window.db, `blocked_users/${k}`), { blocked: true, updatedAt: Date.now() });
                 } else {
@@ -1785,8 +2160,10 @@
             seenAttendanceSignatures[docId] = `${at}_${eat}_${type}_${ctx.targetDateKey}`;
 
             try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${docId}`), {
                     room: String(currentUser.room),
+                    bed: String(currentUser.bed || ''),
                     name: currentUser.name,
                     eat,
                     type,
@@ -1811,6 +2188,7 @@
             const cur = (messSchedule[meal] && messSchedule[meal][day]) || "";
             const t = prompt(`Edit ${meal} Menu for ${day}:`, cur);
             if (t !== null && t.trim()) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 if (!messSchedule[meal]) messSchedule[meal] = {};
                 messSchedule[meal][day] = t.trim();
                 await window.rtdbSet(window.rtdbRef(window.db, "settings/messMenu"), messSchedule);
@@ -1827,7 +2205,8 @@
             const content = document.getElementById('modal-content');
             let h = `<h2>🛠️ Complaint Box</h2><hr style="margin:10px 0">`;
             if (currentUser.role === 'student') {
-                h += `<div style="background:#fee2e2;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Submit Complaint (Room ${escapeAttr(currentUser.room)})</h4><textarea id="cmp-text" placeholder="Describe the issue in your room..." style="width:100%;margin:8px 0;padding:8px"></textarea><label style="font-size:12px;font-weight:bold;display:block;margin-bottom:5px">Attach Photo (Optional):</label><input type="file" id="cmp-img" accept="image/*" capture="environment" style="margin-bottom:10px"><button class="btn" id="cmp-sub-btn" onclick="submitComplaintWithStorage()">Submit Complaint</button></div>`;
+                const bedLabel = currentUser.bed ? `, Bed ${currentUser.bed}` : '';
+                h += `<div style="background:#fee2e2;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Submit Complaint (Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)})</h4><textarea id="cmp-text" placeholder="Describe the issue in your room..." style="width:100%;margin:8px 0;padding:8px"></textarea><label style="font-size:12px;font-weight:bold;display:block;margin-bottom:5px">Attach Photo (Optional):</label><input type="file" id="cmp-img" accept="image/*" capture="environment" style="margin-bottom:10px"><button class="btn" id="cmp-sub-btn" onclick="submitComplaintWithStorage()">Submit Complaint</button></div>`;
             }
 
             const list = currentUser.role === 'student' ? complaints.filter(isMine) : complaints;
@@ -1836,7 +2215,8 @@
                 const res = c.status === 'Resolved';
                 let rem = "";
                 if (res && c.resolvedAt) rem = `(Auto-deletes in ${Math.max(0, Math.floor((864e5 - (Date.now() - c.resolvedAt)) / 36e5))}h)`;
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(c.room)} - ${escapeAttr(c.name)}</strong><span class="badge ${res ? 'badge-resolved' : 'badge-pending'}">${escapeAttr(c.status)} ${rem}</span></div><p style="margin:8px 0">${escapeAttr(c.text)}</p>${c.image ? `<img src="${escapeAttr(c.image)}" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;cursor:pointer" onclick="enlargeImage(this.src)">` : ''}<div style="margin-top:10px;display:flex;gap:10px">${currentUser.role === 'staff' && !res ? `<button class="btn" style="padding:6px;background:#10b981" onclick="resolveComplaint('${escapeAttr(c.firebaseId)}')">Mark Resolved</button>` : ''}${currentUser.role === 'student' && res ? `<button class="btn" style="padding:6px;background:#3b82f6" onclick="resendComplaint('${escapeAttr(c.firebaseId)}')">🔄 Resend Complaint</button>` : ''}</div></div>`;
+                const bedTag = c.bed ? `, Bed ${c.bed}` : '';
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(c.room)}${escapeAttr(bedTag)} - ${escapeAttr(c.name)}</strong><span class="badge ${res ? 'badge-resolved' : 'badge-pending'}">${escapeAttr(c.status)} ${rem}</span></div><p style="margin:8px 0">${escapeAttr(c.text)}</p>${c.image ? `<img src="${escapeAttr(c.image)}" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;cursor:pointer" onclick="enlargeImage(this.src)">` : ''}<div style="margin-top:10px;display:flex;gap:10px">${currentUser.role === 'staff' && !res ? `<button class="btn" style="padding:6px;background:#10b981" onclick="resolveComplaint('${escapeAttr(c.firebaseId)}')">Mark Resolved</button>` : ''}${currentUser.role === 'student' && res ? `<button class="btn" style="padding:6px;background:#3b82f6" onclick="resendComplaint('${escapeAttr(c.firebaseId)}')">🔄 Resend Complaint</button>` : ''}</div></div>`;
             });
             content.innerHTML = h;
         }
@@ -1879,11 +2259,13 @@
             btn.disabled = true;
 
             try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 const image = f.files && f.files[0] ? await compressImage(f.files[0]) : null;
                 const ref = window.rtdbPush(window.rtdbRef(window.db, "complaints"));
                 markSeen('cp_' + ref.key, 'Pending');
                 await window.rtdbSet(ref, {
                     room: String(currentUser.room),
+                    bed: String(currentUser.bed || ''),
                     name: currentUser.name,
                     studentKey: keyOf(currentUser.phone),
                     text,
@@ -1903,6 +2285,7 @@
         }
 
         async function resolveComplaint(id) {
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${id}`), {
                 status: "Resolved",
                 resolvedAt: Date.now(),
@@ -1912,6 +2295,7 @@
         }
 
         async function resendComplaint(id) {
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             markSeen('cp_' + id, 'Pending');
             await window.rtdbUpdate(window.rtdbRef(window.db, `complaints/${id}`), { status: "Pending", resolvedAt: null });
             alert("Complaint has been resent to staff!");
@@ -1940,6 +2324,7 @@
             const t = document.getElementById('rule-title').value.trim();
             const c = document.getElementById('rule-content').value.trim();
             if (!t || !c) return alert("Please enter both rule title and content.");
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "rules")), { title: t, content: c, id: Date.now() });
         }
 
@@ -1950,6 +2335,7 @@
             if (t === null) return;
             const c = prompt("Edit Rule Description:", r.content);
             if (c !== null) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbUpdate(window.rtdbRef(window.db, `rules/${id}`), {
                     title: t.trim() || r.title,
                     content: c.trim() || r.content
@@ -1959,6 +2345,7 @@
 
         async function deleteHostelRule(id) {
             if (confirm("Are you sure you want to delete this rule?")) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `rules/${id}`));
             }
         }
@@ -1969,12 +2356,13 @@
             const st = currentUser.role === 'staff';
             let h = `<h2>🚪 Room Allocation Dashboard</h2><hr style="margin:10px 0">`;
             if (st) {
-                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Manage Room Allocation</h4><label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Floor:</label><select id="alloc-floor" onchange="updateRooms('alloc-floor','alloc-room')" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select><label style="font-size:12px;font-weight:bold;display:block">Select Room:</label><select id="alloc-room" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Room --</option></select><input type="text" id="alloc-stu1" placeholder="Student 1 Name" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu2" placeholder="Student 2 Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><button class="btn" style="margin-top:8px" onclick="saveRoomAllocation()">Save Allocation</button></div>`;
+                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Manage Room Allocation (3 Beds per Room)</h4><label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Floor:</label><select id="alloc-floor" onchange="updateRooms('alloc-floor','alloc-room')" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select><label style="font-size:12px;font-weight:bold;display:block">Select Room:</label><select id="alloc-room" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Room --</option></select><input type="text" id="alloc-stu1" placeholder="Bed 1 Student Name" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu2" placeholder="Bed 2 Student Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu3" placeholder="Bed 3 Student Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><button class="btn" style="margin-top:8px" onclick="saveRoomAllocation()">Save Allocation</button></div>`;
             }
             h += `<h4>Allocated Rooms List</h4><div style="margin-top:10px">`;
             if (!roomAllocations.length) h += `<p style="color:#6b7280;font-size:13px">No room allocations added yet.</p>`;
             [...roomAllocations].sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0)).forEach(ra => {
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div>` : ''}</div><p style="margin-top:6px;font-size:13px">👤 <strong>Student 1:</strong> ${escapeAttr(ra.student1)} | 👤 <strong>Student 2:</strong> ${escapeAttr(ra.student2)}</p></div>`;
+                const b3 = ra.student3 || "Vacant";
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div>` : ''}</div><p style="margin-top:6px;font-size:13px">🛏️ <strong>Bed 1:</strong> ${escapeAttr(ra.student1)} | 🛏️ <strong>Bed 2:</strong> ${escapeAttr(ra.student2)} | 🛏️ <strong>Bed 3:</strong> ${escapeAttr(b3)}</p></div>`;
             });
             content.innerHTML = h + `</div>`;
         }
@@ -1983,13 +2371,16 @@
             const rm = document.getElementById('alloc-room').value;
             const s1 = document.getElementById('alloc-stu1').value.trim();
             const s2 = document.getElementById('alloc-stu2').value.trim() || "Vacant";
-            if (!rm || !s1) return alert("Please choose a room and enter student name!");
-            const status = s2 !== "Vacant" ? "Fully Occupied" : "Partially Occupied";
+            const s3 = document.getElementById('alloc-stu3').value.trim() || "Vacant";
+            if (!rm || !s1) return alert("Please choose a room and enter Bed 1 student name!");
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            const occupiedCount = [s1, s2, s3].filter(x => x && x !== "Vacant").length;
+            const status = occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`;
             const ex = roomAllocations.find(r => String(r.room) === String(rm));
             if (ex) {
-                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), { student1: s1, student2: s2, status });
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), { student1: s1, student2: s2, student3: s3, status });
             } else {
-                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), { room: String(rm), student1: s1, student2: s2, status });
+                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), { room: String(rm), student1: s1, student2: s2, student3: s3, status });
             }
             alert("Room allocation saved!");
         }
@@ -1997,21 +2388,28 @@
         async function editAllocationById(id) {
             const a = roomAllocations.find(r => r.firebaseId === id);
             if (!a) return;
-            const n1 = prompt("Edit Student 1 Name:", a.student1);
+            const n1 = prompt("Edit Bed 1 Student Name:", a.student1);
             if (n1 === null) return;
-            const n2 = prompt("Edit Student 2 Name:", a.student2);
+            const n2 = prompt("Edit Bed 2 Student Name:", a.student2);
             if (n2 === null) return;
+            const n3 = prompt("Edit Bed 3 Student Name:", a.student3 || "Vacant");
+            if (n3 === null) return;
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             const c1 = n1.trim() || a.student1;
             const c2 = n2.trim() || "Vacant";
+            const c3 = n3.trim() || "Vacant";
+            const occupiedCount = [c1, c2, c3].filter(x => x && x !== "Vacant").length;
             await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${id}`), {
                 student1: c1,
                 student2: c2,
-                status: c2 !== "Vacant" ? "Fully Occupied" : "Partially Occupied"
+                student3: c3,
+                status: occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`
             });
         }
 
         async function deleteAllocation(id) {
             if (confirm("Are you sure you want to delete this room allocation?")) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${id}`));
             }
         }
@@ -2045,6 +2443,7 @@
             const status = document.getElementById('staff-fee-status').value;
 
             if (!room || !name) return alert("Please select room and enter student name!");
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             await window.rtdbSet(window.rtdbRef(window.db, `fees/${room}`), {
                 name,
                 annualFee: annual || "₹45,000",
@@ -2076,6 +2475,7 @@
 
         async function deleteFeeRecord(rm) {
             if (confirm(`Delete fee record for Room ${rm}?`)) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 if (editingFeeRoom === String(rm)) editingFeeRoom = null;
                 await window.rtdbRemove(window.rtdbRef(window.db, `fees/${rm}`));
             }
@@ -2094,7 +2494,8 @@
             if (!list.length) h += `<p style="color:#6b7280;font-size:13px">No leave requests found.</p>`;
             list.forEach(op => {
                 const bc = op.status === 'Approved' ? 'badge-resolved' : op.status === 'Rejected' ? 'badge-rejected' : 'badge-pending';
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>${escapeAttr(op.name)} (Room ${escapeAttr(op.room)})</strong><span class="badge ${bc}">${escapeAttr(op.status)}</span></div><p style="margin:6px 0"><strong>Reason:</strong> ${escapeAttr(op.reason)}</p><p style="font-size:12px;color:#6b7280">📅 <strong>Duration:</strong> ${escapeAttr(op.fromDate)} to ${escapeAttr(op.toDate)}</p>${op.decidedBy ? `<p style="font-size:11px;color:#6b7280;margin-top:4px">By: ${escapeAttr(op.decidedBy)}</p>` : ''}${currentUser.role === 'staff' && op.status === 'Pending' ? `<div style="margin-top:10px;display:flex;gap:10px"><button class="btn" style="background:#10b981;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Approved')">Approve</button><button class="btn" style="background:#ef4444;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Rejected')">Reject</button></div>` : ''}</div>`;
+                const bedTag = op.bed ? `, Bed ${op.bed}` : '';
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>${escapeAttr(op.name)} (Room ${escapeAttr(op.room)}${escapeAttr(bedTag)})</strong><span class="badge ${bc}">${escapeAttr(op.status)}</span></div><p style="margin:6px 0"><strong>Reason:</strong> ${escapeAttr(op.reason)}</p><p style="font-size:12px;color:#6b7280">📅 <strong>Duration:</strong> ${escapeAttr(op.fromDate)} to ${escapeAttr(op.toDate)}</p>${op.decidedBy ? `<p style="font-size:11px;color:#6b7280;margin-top:4px">By: ${escapeAttr(op.decidedBy)}</p>` : ''}${currentUser.role === 'staff' && op.status === 'Pending' ? `<div style="margin-top:10px;display:flex;gap:10px"><button class="btn" style="background:#10b981;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Approved')">Approve</button><button class="btn" style="background:#ef4444;padding:6px" onclick="updateLeaveStatus('${escapeAttr(op.firebaseId)}','Rejected')">Reject</button></div>` : ''}</div>`;
             });
             content.innerHTML = h + `</div>`;
         }
@@ -2112,11 +2513,13 @@
             if (!reason || !from || !to) return alert("Please specify reason, start date, and end date.");
             if (from > to) return alert("To Date cannot be earlier than From Date.");
 
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             const ref = window.rtdbPush(window.rtdbRef(window.db, "outpasses"));
             markSeen('op_' + ref.key, 'Pending');
             await window.rtdbSet(ref, {
                 name: currentUser.name,
                 room: String(currentUser.room),
+                bed: String(currentUser.bed || ''),
                 studentKey: keyOf(currentUser.phone),
                 reason,
                 fromDate: from,
@@ -2130,6 +2533,7 @@
         }
 
         async function updateLeaveStatus(id, status) {
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             await window.rtdbUpdate(window.rtdbRef(window.db, `outpasses/${id}`), {
                 status,
                 decidedAt: Date.now(),
@@ -2144,10 +2548,12 @@
             const st = currentUser.role === 'staff';
             let h = `<h2>👥 Staff Directory & Emergency Contacts</h2><hr style="margin:10px 0">`;
             if (st) {
-                h += `<div style="background:#e0e7ff;padding:12px;border-radius:8px;margin-bottom:15px"><h4>Add New Staff Contact</h4><input type="text" id="add-staff-role" placeholder="Staff Role/Position" style="width:100%;margin:6px 0;padding:8px"><input type="text" id="add-staff-name" placeholder="Staff Person Name" style="width:100%;margin:6px 0;padding:8px"><input type="tel" id="add-staff-phone" placeholder="Phone Number" style="width:100%;margin:6px 0;padding:8px"><button class="btn" style="margin-top:6px" onclick="addStaffMember()">Add Staff Contact</button></div>`;
+                h += `<div style="background:#e0e7ff;padding:12px;border-radius:8px;margin-bottom:15px"><h4>Add New Staff Contact</h4><input type="text" id="add-staff-role" placeholder="Staff Role/Position" style="width:100%;margin:6px 0;padding:8px"><input type="text" id="add-staff-name" placeholder="Staff Person Name" style="width:100%;margin:6px 0;padding:8px"><div class="phone-input-wrap" style="margin:6px 0"><span class="phone-prefix">+91</span><input type="tel" id="add-staff-phone" maxlength="14" inputmode="numeric" placeholder="10-digit mobile number" oninput="sanitizeIndianPhoneInput(this)"></div><button class="btn" style="margin-top:6px" onclick="addStaffMember()">Add Staff Contact</button></div>`;
             }
             staffMembers.forEach(s => {
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><strong>${escapeAttr(s.role)}:</strong> ${escapeAttr(s.name)}<br><small style="color:#6b7280">📞 ${escapeAttr(s.phone)}</small></div><div style="display:flex;gap:8px;align-items:center"><a href="tel:${escapeAttr(s.phone)}" class="call-btn">📞 Call</a>${st ? `<button onclick="editStaffMemberById('${escapeAttr(s.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️</button><button onclick="deleteStaffMember('${escapeAttr(s.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️</button>` : ''}</div></div></div>`;
+                const dispPhone = formatPhoneDisplay(s.phone);
+                const telHref = keyOf(s.phone) ? `+${keyOf(s.phone)}` : s.phone;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><strong>${escapeAttr(s.role)}:</strong> ${escapeAttr(s.name)}<br><small style="color:#6b7280">📞 ${escapeAttr(dispPhone)}</small></div><div style="display:flex;gap:8px;align-items:center"><a href="tel:${escapeAttr(telHref)}" class="call-btn">📞 Call</a>${st ? `<button onclick="editStaffMemberById('${escapeAttr(s.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️</button><button onclick="deleteStaffMember('${escapeAttr(s.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️</button>` : ''}</div></div></div>`;
             });
             content.innerHTML = h;
         }
@@ -2155,9 +2561,17 @@
         async function addStaffMember() {
             const r = document.getElementById('add-staff-role').value.trim();
             const n = document.getElementById('add-staff-name').value.trim();
-            const p = document.getElementById('add-staff-phone').value.trim();
-            if (!r || !n || !p) return alert("Please fill all contact fields!");
-            await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "staff")), { role: r, name: n, phone: p, id: Date.now() });
+            const rawP = document.getElementById('add-staff-phone').value.trim();
+            if (!r || !n || !rawP) return alert("Please fill all contact fields!");
+            const phoneCheck = parseAndValidateIndianPhone(rawP);
+            if (!phoneCheck.ok) return alert(phoneCheck.message);
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "staff")), {
+                role: r,
+                name: n,
+                phone: phoneCheck.formatted,
+                id: Date.now()
+            });
         }
 
         async function editStaffMemberById(id) {
@@ -2165,15 +2579,22 @@
             if (!s) return;
             const n = prompt("Edit Staff Name:", s.name);
             if (n === null) return;
-            const p = prompt("Edit Phone Number:", s.phone);
+            const p = prompt("Edit 10-digit Phone Number (+91):", extractIndian10Digit(s.phone) || s.phone);
             if (p === null) return;
-            if (n.trim() && p.trim()) {
-                await window.rtdbUpdate(window.rtdbRef(window.db, `staff/${id}`), { name: n.trim(), phone: p.trim() });
+            const phoneCheck = parseAndValidateIndianPhone(p);
+            if (!phoneCheck.ok) return alert(phoneCheck.message);
+            if (n.trim()) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                await window.rtdbUpdate(window.rtdbRef(window.db, `staff/${id}`), {
+                    name: n.trim(),
+                    phone: phoneCheck.formatted
+                });
             }
         }
 
         async function deleteStaffMember(id) {
             if (confirm("Are you sure you want to delete this staff contact?")) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `staff/${id}`));
             }
         }
@@ -2183,6 +2604,7 @@
             const t = document.getElementById('nt-title').value.trim();
             const b = document.getElementById('nt-body').value.trim();
             if (!t || !b) return alert("Please fill both title and notice body.");
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "notices")), {
                 id: Date.now(),
                 title: t,
@@ -2197,6 +2619,7 @@
 
         async function deleteNotice(id) {
             if (confirm("Delete this notice?")) {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `notices/${id}`));
             }
         }
