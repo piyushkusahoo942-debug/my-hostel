@@ -72,6 +72,18 @@
             color: #9ca3af;
         }
 
+        .green-brand-pill {
+            display: inline-block;
+            margin-top: 8px;
+            background: #10b981;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 3px 12px;
+            border-radius: 999px;
+            letter-spacing: 0.3px;
+        }
+
         .mh-badge-btn {
             position: absolute;
             top: 20px;
@@ -108,25 +120,39 @@
             position: absolute;
             top: 20px;
             right: 20px;
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(5px);
-            padding: 6px 12px;
-            border-radius: 20px;
-            color: #fff;
-            font-size: 12px;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .switch-btn {
             background: #ef4444;
-            color: #fff;
+            color: #ffffff;
             border: none;
-            padding: 3px 8px;
-            border-radius: 12px;
+            padding: 6px 12px;
+            border-radius: 14px;
             cursor: pointer;
-            font-size: 11px;
-            font-weight: bold;
+            font-size: 12px;
+            font-weight: 700;
+            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.35);
+        }
+
+        .switch-btn:hover {
+            background: #dc2626;
+        }
+
+        .logout-btn-top {
+            background: #374151;
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 6px 12px;
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .logout-btn-top:hover {
+            background: #1f2937;
         }
 
         .content-body {
@@ -309,17 +335,6 @@
             top: 10px;
             right: 10px;
             display: none;
-        }
-
-        .student-confirm-banner {
-            display: none;
-            background: #ecfdf5;
-            border: 1px solid #a7f3d0;
-            border-left: 4px solid #10b981;
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin-bottom: 16px;
-            text-align: left;
         }
 
         .bed-dot-row {
@@ -711,6 +726,15 @@
             margin-top: 16px;
         }
 
+        .future-lifecycle-panel {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-left: 4px solid #10b981;
+            border-radius: 10px;
+            padding: 14px;
+            margin-top: 14px;
+        }
+
         #toast-wrap {
             position: fixed;
             top: 14px;
@@ -749,6 +773,7 @@
             .modal-close,
             .btn,
             .switch-btn,
+            .logout-btn-top,
             .mh-badge-btn,
             .tab-btn,
             button {
@@ -847,9 +872,10 @@
             </div>
             <h1>My Hostel</h1>
             <p>New Version Hostel Management Portal</p>
+            <div><span class="green-brand-pill">My Hostel</span></div>
             <div id="header-user-badge" class="user-badge-header">
-                <span id="header-user-info">Logged in</span>
                 <button class="switch-btn" onclick="confirmSwitchAccount()">Switch ID</button>
+                <button id="header-student-logout-btn" class="logout-btn-top" style="display:none" onclick="confirmStudentLogout()">Logout</button>
             </div>
         </div>
 
@@ -954,21 +980,22 @@
             </div>
 
             <div id="dashboard-screen" class="form-screen">
-                <div id="student-confirmation-box" class="student-confirm-banner"></div>
-
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;flex-wrap:wrap;gap:8px">
                     <div>
                         <h3 id="user-display-name">Welcome!</h3>
                         <p id="user-display-role" style="color:var(--text-light);font-size:13px">Role: Resident</p>
                     </div>
-                    <span id="user-tag" style="background:#e0e7ff;color:#4f46e5;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:bold">Room: -- | Bed: --</span>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span id="user-tag" style="background:#e0e7ff;color:#4f46e5;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:bold">Room: -- | Bed: --</span>
+                        <button id="dash-student-logout-btn" onclick="confirmStudentLogout()" style="display:none;background:#ef4444;color:#fff;border:none;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer">🚪 Logout</button>
+                    </div>
                 </div>
 
                 <div id="dashboard-cards-grid" class="dashboard-grid">
                     <div class="dash-card" id="dash-card-admission" style="display:none" onclick="openModule('admission')">
                         <div class="icon">🎓</div>
                         <h4>Admission</h4>
-                        <p>Student Admission & Delete Box</p>
+                        <p>Admission, Re-Admission & Delete Box</p>
                     </div>
                     <div class="dash-card" onclick="openModule('notice')">
                         <div class="icon">📢</div>
@@ -1033,6 +1060,12 @@
         const PROTECTED_VIP_PHONE_KEY = "91" + PROTECTED_VIP_PHONE_10;
         const PROTECTED_VIP_PHONE_DISP = "+91 7855998332";
 
+        const READMISSION_AUTHORIZED_ROLES = [
+            "Hostel Incharge",
+            "Hostel Supervisor",
+            "Hostel Administrative"
+        ];
+
         const staffCodes = {
             "Chief Warden": "7854123",
             "Hostel Incharge": "6541230",
@@ -1041,9 +1074,14 @@
             "Kitchen Mess Cook": "3214567"
         };
 
-        /* Fixed 6-character non-serial Bed Verification Codes per room (101-135, 201-235, 301-335) and bed (1, 2, 3) */
         const BED_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         const FIXED_BED_CODES = {};
+        let bedKeyRevisions = {};
+
+        function getDefaultSessionLabel(now = new Date()) {
+            const yr = now.getFullYear();
+            return now.getMonth() >= 5 ? `${yr}-${String(yr + 1).slice(-2)}` : `${yr - 1}-${String(yr).slice(-2)}`;
+        }
 
         function isValidHostelRoom(room) {
             const rm = parseInt(room, 10);
@@ -1058,28 +1096,35 @@
             return rooms;
         }
 
+        function computeKeyFromSeed(seedNum) {
+            let state = seedNum >>> 0;
+            state = (Math.imul(state ^ 0x9e3779b9, 0x85ebca6b) + 0xc2b2ae35) >>> 0;
+            let s = state || 0x13579bdf;
+            let code = "";
+            for (let i = 0; i < 6; i++) {
+                s ^= s << 13;
+                s >>>= 0;
+                s ^= s >>> 17;
+                s >>>= 0;
+                s ^= s << 5;
+                s = (Math.imul(s >>> 0, 0x27d4eb2d) + (i + 1) * 0x9e3779b9) >>> 0;
+                code += BED_CODE_ALPHABET[s % BED_CODE_ALPHABET.length];
+            }
+            return code;
+        }
+
         function buildFixedBedCodeTable() {
             const used = new Set();
             for (const rm of getAllHostelRooms()) {
                 FIXED_BED_CODES[String(rm)] = {};
                 for (const b of ["1", "2", "3"]) {
                     const bedMix = b === "1" ? 0x9e3779b9 : b === "2" ? 0x85ebca6b : 0xc2b2ae35;
-                    let state = (Math.imul(rm ^ 0x5bd1e995, 0x27d4eb2d) ^ bedMix) >>> 0;
+                    let baseSeed = (Math.imul(rm ^ 0x5bd1e995, 0x27d4eb2d) ^ bedMix) >>> 0;
                     let attempt = 0;
                     let code = "";
                     do {
-                        state = (Math.imul(state ^ (attempt * 0x165667b1), 0x85ebca6b) + 0xc2b2ae35) >>> 0;
-                        let s = state || 0x13579bdf;
-                        code = "";
-                        for (let i = 0; i < 6; i++) {
-                            s ^= s << 13;
-                            s >>>= 0;
-                            s ^= s >>> 17;
-                            s >>>= 0;
-                            s ^= s << 5;
-                            s = (Math.imul(s >>> 0, 0x27d4eb2d) + (i + 1) * 0x9e3779b9) >>> 0;
-                            code += BED_CODE_ALPHABET[s % BED_CODE_ALPHABET.length];
-                        }
+                        const s = (baseSeed ^ (attempt * 0x165667b1)) >>> 0;
+                        code = computeKeyFromSeed(s);
                         attempt++;
                     } while (used.has(code));
                     used.add(code);
@@ -1089,11 +1134,27 @@
         }
         buildFixedBedCodeTable();
 
-        function getRandomBedCode(room, bed) {
+        function getBedKeyRevision(room, bed) {
+            const rm = String(parseInt(room, 10));
+            const b = String(bed || "").trim();
+            const entry = bedKeyRevisions[rm] && bedKeyRevisions[rm][b];
+            return parseInt((entry && entry.rev) || 0, 10) || 0;
+        }
+
+        function getRandomBedCode(room, bed, revOverride = null) {
             const rm = String(parseInt(room, 10));
             const b = String(bed || "").trim();
             if (!isValidHostelRoom(rm) || !["1", "2", "3"].includes(b)) return "";
-            return (FIXED_BED_CODES[rm] && FIXED_BED_CODES[rm][b]) || "";
+            const baseCode = (FIXED_BED_CODES[rm] && FIXED_BED_CODES[rm][b]) || "";
+            const rev = revOverride !== null ? (parseInt(revOverride, 10) || 0) : getBedKeyRevision(rm, b);
+            if (rev <= 0) return baseCode;
+
+            let mix = 0;
+            for (let i = 0; i < baseCode.length; i++) {
+                mix = (Math.imul(mix, 31) + baseCode.charCodeAt(i)) >>> 0;
+            }
+            const revSeed = (mix ^ Math.imul(rev + 17, 0x85ebca6b) ^ (parseInt(rm, 10) * 131 + parseInt(b, 10) * 977)) >>> 0;
+            return computeKeyFromSeed(revSeed);
         }
 
         function getRoomBedCodeBundle(room) {
@@ -1104,15 +1165,50 @@
                 roomCode: String(rm) + "0",
                 bed1: getRandomBedCode(rm, "1"),
                 bed2: getRandomBedCode(rm, "2"),
-                bed3: getRandomBedCode(rm, "3")
+                bed3: getRandomBedCode(rm, "3"),
+                rev1: getBedKeyRevision(rm, "1"),
+                rev2: getBedKeyRevision(rm, "2"),
+                rev3: getBedKeyRevision(rm, "3")
             };
+        }
+
+        async function rotateSingleBedKey(room, bed, reasonLabel = "updated") {
+            const rm = String(parseInt(room, 10));
+            const b = String(bed || "").trim();
+            if (!isValidHostelRoom(rm) || !["1", "2", "3"].includes(b)) return "";
+
+            const currentRev = getBedKeyRevision(rm, b);
+            const nextRev = currentRev + 1;
+            const newCode = getRandomBedCode(rm, b, nextRev);
+
+            if (!bedKeyRevisions[rm]) bedKeyRevisions[rm] = {};
+            bedKeyRevisions[rm][b] = {
+                rev: nextRev,
+                code: newCode,
+                reason: reasonLabel,
+                updatedAt: Date.now()
+            };
+
+            if (window.db) {
+                try {
+                    if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                    await window.rtdbSet(window.rtdbRef(window.db, `bed_key_revisions/${rm}/${b}`), {
+                        rev: nextRev,
+                        code: newCode,
+                        reason: reasonLabel,
+                        updatedAt: Date.now()
+                    });
+                } catch (e) {
+                    console.error("Failed to persist bed key rotation:", e);
+                }
+            }
+            return newCode;
         }
 
         function normalizeBedCodeInput(val) {
             return String(val || "").trim().toUpperCase();
         }
 
-        /* Cartoon avatar with headphones 🎧 */
         function getHeadphonesCartoonAvatarDataUrl() {
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
                 <defs>
@@ -1201,7 +1297,6 @@
         let unreadStudentOutpassAlerts = 0;
         let unreadStudentFeeAlerts = 0;
 
-        /* Indian 10-digit mobile number helpers (+91 prefix) */
         function extractIndian10Digit(raw) {
             let digits = String(raw || '').replace(/[^0-9]/g, '');
             if (digits.length === 12 && digits.startsWith('91')) {
@@ -1270,6 +1365,107 @@
             .replace(/'/g, "&#39;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;");
+
+        function normalizeStudentName(n) {
+            return String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
+        }
+
+        /**
+         * 1 Bed = 1 Student rule:
+         * Deduplicates registeredStudents so that the same student (by phone, name, or room+bed)
+         * is never counted or listed multiple times when logging in repeatedly.
+         */
+        function getUniqueStudentEntries() {
+            const rawEntries = Object.keys(registeredStudents || {}).map(k => ({
+                firebaseKey: k,
+                ...(registeredStudents[k] || {})
+            }));
+
+            rawEntries.sort((a, b) => {
+                const aKeyIsPhone = /^91[0-9]{10}$/.test(a.firebaseKey);
+                const bKeyIsPhone = /^91[0-9]{10}$/.test(b.firebaseKey);
+                if (aKeyIsPhone !== bKeyIsPhone) return aKeyIsPhone ? -1 : 1;
+                return (a.firstJoinedAt || a.lastLogin || 0) - (b.firstJoinedAt || b.lastLogin || 0);
+            });
+
+            const uniqueMap = new Map();
+
+            const resolveIdentityKey = (st) => {
+                const pk = keyOf(st.phone || st.firebaseKey);
+                const rm = String(st.room || "").trim();
+                const bd = String(st.bed || "").trim();
+                const nn = normalizeStudentName(st.name);
+
+                if (rm && bd) return `bed:${rm}_${bd}`;
+                if (pk) return `phone:${pk}`;
+                if (nn) return `name:${nn}`;
+                return `key:${st.firebaseKey}`;
+            };
+
+            rawEntries.forEach(st => {
+                const idKey = resolveIdentityKey(st);
+                const prev = uniqueMap.get(idKey);
+                if (!prev) {
+                    uniqueMap.set(idKey, Object.assign({}, st));
+                } else {
+                    const merged = Object.assign({}, prev, st);
+                    merged.firstJoinedAt = prev.firstJoinedAt || prev.lastLogin || st.firstJoinedAt || st.lastLogin || Date.now();
+                    merged.lastLogin = Math.max(prev.lastLogin || 0, st.lastLogin || 0);
+                    merged.name = (st.name && st.name.trim()) ? st.name.trim() : prev.name;
+                    merged.phone = st.phone || prev.phone;
+                    merged.room = (st.room && String(st.room).trim()) ? String(st.room).trim() : prev.room;
+                    merged.bed = (st.bed && String(st.bed).trim()) ? String(st.bed).trim() : prev.bed;
+                    uniqueMap.set(idKey, merged);
+                }
+            });
+
+            return Array.from(uniqueMap.values());
+        }
+
+        async function upsertSingleBedStudentRecord(k, payload) {
+            if (!window.db || !k) return;
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
+            const rm = String(payload.room || "").trim();
+            const bd = String(payload.bed || "").trim();
+            const nn = normalizeStudentName(payload.name);
+
+            const existingSnap = await window.rtdbGet(window.rtdbRef(window.db, "registered_students"));
+            const existingAll = existingSnap.val() || {};
+
+            let earliestJoin = payload.lastLogin || Date.now();
+            const staleKeysToRemove = [];
+
+            Object.keys(existingAll).forEach(exKey => {
+                const exSt = existingAll[exKey] || {};
+                const exPhoneKey = keyOf(exSt.phone || exKey);
+                const exRoom = String(exSt.room || "").trim();
+                const exBed = String(exSt.bed || "").trim();
+                const exName = normalizeStudentName(exSt.name);
+
+                const matchesSameStudentOrBed =
+                    exKey === k ||
+                    (exPhoneKey && exPhoneKey === k) ||
+                    (rm && bd && exRoom === rm && exBed === bd) ||
+                    (nn && exName && exName === nn && (!exRoom || exRoom === rm));
+
+                if (matchesSameStudentOrBed) {
+                    const candTime = exSt.firstJoinedAt || exSt.lastLogin;
+                    if (candTime && candTime < earliestJoin) earliestJoin = candTime;
+                    if (exKey !== k) staleKeysToRemove.push(exKey);
+                }
+            });
+
+            const finalRecord = Object.assign({}, payload, {
+                firstJoinedAt: earliestJoin,
+                lastLogin: payload.lastLogin || Date.now()
+            });
+
+            await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${k}`), finalRecord);
+            for (const staleKey of staleKeysToRemove) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `registered_students/${staleKey}`)).catch(() => {});
+            }
+        }
 
         function formatDateKey(d) {
             return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1562,6 +1758,12 @@
             const R = p => window.rtdbRef(window.db, p);
             const L = (p, cb) => window.rtdbOnValue(R(p), cb);
 
+            L("bed_key_revisions", s => {
+                bedKeyRevisions = s.val() || {};
+                refreshActiveModuleByName('MH Live');
+                refreshActiveModuleByName('Admission');
+            });
+
             L("notices", s => {
                 notices = toList(s.val());
                 if (lastNoticeCount !== -1 && notices.length > lastNoticeCount && currentUser && currentUser.role === 'student') {
@@ -1611,7 +1813,6 @@
 
             L("allocations", s => {
                 roomAllocations = toList(s.val());
-                if (currentUser && currentUser.role === 'student') renderStudentConfirmationCard();
                 renderStudentBedDotsPreview();
                 onAllotBedSelect();
                 onAdmissionBedPreview();
@@ -1641,7 +1842,6 @@
 
             L("registered_students", s => {
                 registeredStudents = s.val() || {};
-                if (currentUser && currentUser.role === 'student') renderStudentConfirmationCard();
                 renderStudentBedDotsPreview();
                 onAllotBedSelect();
                 onAdmissionBedPreview();
@@ -1813,61 +2013,26 @@
             });
         }
 
-        function renderStudentConfirmationCard() {
-            const box = document.getElementById('student-confirmation-box');
-            if (!box) return;
-            if (!currentUser || currentUser.role !== 'student') {
-                box.style.display = 'none';
-                box.innerHTML = '';
-                return;
-            }
-
-            const rm = String(currentUser.room || '');
-            const bd = String(currentUser.bed || '');
-            const fl = currentUser.floorLabel || getRoomFloorLabel(rm);
-            const alloc = roomAllocations.find(r => String(r.room) === rm) || null;
-            const bedHolder = alloc
-                ? (bd === "1" ? alloc.student1 : bd === "2" ? alloc.student2 : bd === "3" ? alloc.student3 : "")
-                : "";
-            const hasAdmission = !!(bedHolder && bedHolder !== "Vacant");
-            const admName = hasAdmission ? bedHolder : currentUser.name;
-
-            box.style.display = 'block';
-            box.innerHTML = `
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-                    <strong style="color:#065f46;font-size:14px">✅ Login & Bed Confirmation Details</strong>
-                    <span class="badge ${hasAdmission ? 'badge-paid' : 'badge-pending'}">${hasAdmission ? 'Admission Recorded' : 'Self Login Active'}</span>
-                </div>
-                <div style="margin-top:8px;font-size:13px;color:#1f2937;line-height:1.65">
-                    <div><strong>👤 Student Name:</strong> ${escapeAttr(currentUser.name)}</div>
-                    <div><strong>📞 Mobile:</strong> ${escapeAttr(formatPhoneDisplay(currentUser.phone))}</div>
-                    <div><strong>🏢 Floor:</strong> ${escapeAttr(fl)} | <strong>🚪 Room:</strong> ${escapeAttr(rm)} | <strong>🛏️ Bed:</strong> Bed ${escapeAttr(bd)}</div>
-                    <div><strong>🎓 Admission Record:</strong> ${hasAdmission ? `Admitted as <strong>${escapeAttr(admName)}</strong> on 🛏️ Bed ${escapeAttr(bd)}` : `No separate admin admission entry yet (Active for <strong>${escapeAttr(currentUser.name)}</strong>)`}</div>
-                </div>`;
-        }
-
         function setupUserUI() {
             if (!currentUser) return;
             document.getElementById('header-user-badge').style.display = 'flex';
             const $ = id => document.getElementById(id);
             const admCard = $('dash-card-admission');
-            const confirmBox = $('student-confirmation-box');
+            const topStuLogout = $('header-student-logout-btn');
+            const dashStuLogout = $('dash-student-logout-btn');
 
             if (currentUser.role === 'student') {
                 if (admCard) admCard.style.display = 'none';
+                if (topStuLogout) topStuLogout.style.display = 'inline-block';
+                if (dashStuLogout) dashStuLogout.style.display = 'inline-block';
                 const bedText = currentUser.bed ? ` | Bed ${currentUser.bed}` : '';
-                $('header-user-info').innerText = `${currentUser.name} (Rm: ${currentUser.room}${bedText})`;
                 $('user-display-name').innerText = currentUser.name;
                 $('user-display-role').innerText = "Student Resident";
                 $('user-tag').innerText = `Room: ${currentUser.room}${bedText}`;
-                renderStudentConfirmationCard();
             } else {
                 if (admCard) admCard.style.display = 'block';
-                if (confirmBox) {
-                    confirmBox.style.display = 'none';
-                    confirmBox.innerHTML = '';
-                }
-                $('header-user-info').innerText = `${currentUser.name} (${currentUser.position})`;
+                if (topStuLogout) topStuLogout.style.display = 'none';
+                if (dashStuLogout) dashStuLogout.style.display = 'none';
                 $('user-display-name').innerText = currentUser.name;
                 $('user-display-role').innerText = "Staff: " + currentUser.position;
                 $('user-tag').innerText = "Admin Access";
@@ -1902,13 +2067,12 @@
             }
         }
 
-        /* Green = Available, Red = Occupied (Admitted/Allocated or Logged-in Student) */
         function getBedOccupancyMap(room) {
             const rm = String(room || "").trim();
             const map = {
-                "1": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", loginDetails: null, admissionDetails: null },
-                "2": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", loginDetails: null, admissionDetails: null },
-                "3": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", loginDetails: null, admissionDetails: null }
+                "1": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", session: "", loginDetails: null, admissionDetails: null },
+                "2": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", session: "", loginDetails: null, admissionDetails: null },
+                "3": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", session: "", loginDetails: null, admissionDetails: null }
             };
             if (!rm) return map;
 
@@ -1919,14 +2083,17 @@
                     const det = Array.isArray(alloc.students) ? alloc.students.find(x => String(x.bed) === b) : null;
                     if (nm && String(nm).trim() && nm !== "Vacant") {
                         const admNo = (det && det.admissionNo) || `ADM-${rm}-B${b}-${String(idx + 1).padStart(2, '0')}`;
+                        const sess = (det && det.session) || alloc.session || getDefaultSessionLabel();
                         map[b] = {
                             occupied: true,
-                            reason: "Admitted / Allocated",
+                            reason: (det && det.isReAdmission) ? "Re-Admitted" : "Admitted / Allocated",
                             holder: nm,
                             admissionNo: admNo,
+                            session: sess,
                             admissionDetails: {
                                 admissionNo: admNo,
                                 name: nm,
+                                session: sess,
                                 phone: det && det.phone ? formatPhoneDisplay(det.phone) : "",
                                 admittedAt: det && det.admittedAt ? formatDisplayDate(new Date(det.admittedAt)) : ""
                             },
@@ -1936,13 +2103,12 @@
                 });
             }
 
-            Object.keys(registeredStudents).forEach(k => {
-                const st = registeredStudents[k];
-                if (st && String(st.room || "").trim() === rm && ["1", "2", "3"].includes(String(st.bed || ""))) {
+            getUniqueStudentEntries().forEach(st => {
+                if (st && st.activeResident !== false && String(st.room || "").trim() === rm && ["1", "2", "3"].includes(String(st.bed || ""))) {
                     const b = String(st.bed);
                     const lDet = {
                         name: st.name || "Student",
-                        phone: formatPhoneDisplay(st.phone || k),
+                        phone: formatPhoneDisplay(st.phone || st.firebaseKey),
                         room: rm,
                         bed: b,
                         lastLogin: st.lastLogin ? new Date(st.lastLogin).toLocaleString() : ""
@@ -2046,11 +2212,13 @@
         function isSameLoginIdentity(existing, candidate) {
             if (!existing || !candidate) return false;
             const sameRole = existing.role === candidate.role;
-            const sameName = String(existing.name || '').trim().toLowerCase() === String(candidate.name || '').trim().toLowerCase();
+            const sameName = normalizeStudentName(existing.name) === normalizeStudentName(candidate.name);
             if (candidate.role === 'student') {
-                return sameRole && sameName &&
-                    String(existing.room || '') === String(candidate.room || '') &&
-                    String(existing.bed || '') === String(candidate.bed || '');
+                return sameRole && (
+                    sameName ||
+                    (String(existing.room || '') === String(candidate.room || '') &&
+                     String(existing.bed || '') === String(candidate.bed || ''))
+                );
             }
             return sameRole && sameName && String(existing.position || '') === String(candidate.position || '');
         }
@@ -2076,6 +2244,10 @@
                 }
 
                 await window.rtdbUpdate(lockRef, {
+                    name: candidate.name,
+                    room: candidate.role === 'student' ? String(candidate.room) : null,
+                    bed: candidate.role === 'student' ? String(candidate.bed) : null,
+                    position: candidate.role === 'staff' ? String(candidate.position) : null,
                     lastLoginAt: Date.now()
                 });
                 return { allowed: true };
@@ -2185,11 +2357,14 @@
                 unreadStudentFeeAlerts = 0;
                 try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
 
-                await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${k}`), {
+                const prevReg = registeredStudents[k] || {};
+                await upsertSingleBedStudentRecord(k, {
                     name,
                     phone: phoneCheck.formatted,
                     room: String(room),
                     bed: String(bed),
+                    activeResident: true,
+                    loginCount: (parseInt(prevReg.loginCount, 10) || 0) + 1,
                     lastLogin: Date.now()
                 });
 
@@ -2255,6 +2430,13 @@
             btn.innerText = "Login";
         }
 
+        function confirmStudentLogout() {
+            if (!currentUser || currentUser.role !== 'student') return;
+            if (confirm(`Logout from Student Account?\n\nStudent: ${currentUser.name} (Room ${currentUser.room}, Bed ${currentUser.bed})`)) {
+                logoutSession();
+            }
+        }
+
         function confirmSwitchAccount() {
             if (!currentUser) return;
             const who = currentUser.role === 'student'
@@ -2286,6 +2468,8 @@
             resetRefreshState();
             closeModal();
             document.getElementById('header-user-badge').style.display = 'none';
+            document.getElementById('header-student-logout-btn').style.display = 'none';
+            document.getElementById('dash-student-logout-btn').style.display = 'none';
             showScreen('role-screen');
 
             if (window.db) {
@@ -2318,8 +2502,8 @@
         function openDeveloperProfile(silent) {
             const content = document.getElementById('modal-content');
             document.getElementById('modal-overlay').style.display = 'flex';
-            const keys = Object.keys(registeredStudents);
-            const joined = keys.length;
+            const uniqueStudents = getUniqueStudentEntries();
+            const joined = uniqueStudents.length;
             const online = Object.keys(presence).length;
             const isStaff = currentUser && currentUser.role === 'staff';
             const headphonesAvatar = getHeadphonesCartoonAvatarDataUrl();
@@ -2342,32 +2526,35 @@
 
             if (isStaff) {
                 html += `<hr style="margin:20px 0"><h3 style="color:var(--primary);margin-bottom:10px">🛡️ Admin Dashboard</h3>`;
-                if (!keys.length) html += `<p style="color:#6b7280;font-size:13px">No registered students found.</p>`;
-                keys.sort((a, b) => (parseInt(registeredStudents[a].room) || 0) - (parseInt(registeredStudents[b].room) || 0)).forEach(k => {
-                    const st = registeredStudents[k];
-                    const isVip = isProtectedVipPhone(k);
-                    const bl = !isVip && !!(blockedUsers[k] && blockedUsers[k].blocked);
-                    const locked = !isVip && !!(loginLocks[k] && loginLocks[k].locked);
-                    const on = !!presence[k];
-                    const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
-                    html += `
-                        <div class="item-card" style="border-left-color:${bl ? '#ef4444' : '#10b981'};text-align:left">
-                            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-                                <div>
-                                    <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)}${escapeAttr(bedInfo)})<br>
-                                    <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
+                if (!uniqueStudents.length) html += `<p style="color:#6b7280;font-size:13px">No registered students found.</p>`;
+                uniqueStudents
+                    .sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0) || (parseInt(a.bed) || 0) - (parseInt(b.bed) || 0))
+                    .forEach(st => {
+                        const k = keyOf(st.phone || st.firebaseKey) || st.firebaseKey;
+                        const isVip = isProtectedVipPhone(k);
+                        const bl = !isVip && !!(blockedUsers[k] && blockedUsers[k].blocked);
+                        const locked = !isVip && !!(loginLocks[k] && loginLocks[k].locked);
+                        const on = !!presence[k];
+                        const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
+                        const upgrades = (parseInt(st.loginCount, 10) || 1) > 1 ? ` • <small style="color:#4f46e5">Upgraded (${st.loginCount}x)</small>` : '';
+                        html += `
+                            <div class="item-card" style="border-left-color:${bl ? '#ef4444' : '#10b981'};text-align:left">
+                                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                                    <div>
+                                        <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)}${escapeAttr(bedInfo)})${upgrades}<br>
+                                        <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+                                        ${isVip
+                                            ? `<span class="badge badge-resolved">🎧 Protected</span>`
+                                            : `<span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
+                                               ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
+                                               <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>`
+                                        }
+                                    </div>
                                 </div>
-                                <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-                                    ${isVip
-                                        ? `<span class="badge badge-resolved">🎧 Protected</span>`
-                                        : `<span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
-                                           ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
-                                           <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>`
-                                    }
-                                </div>
-                            </div>
-                        </div>`;
-                });
+                            </div>`;
+                    });
 
                 html += `
                     <hr style="margin:20px 0">
@@ -2401,9 +2588,9 @@
                         <span class="badge badge-resolved">Room Code: ${escapeAttr(bundle.roomCode)}</span>
                     </div>
                     <div style="margin-top:8px;font-size:13px;color:#1f2937;line-height:1.7">
-                        <div>🛏️ <strong>Bed 1 Code:</strong> <code>${escapeAttr(bundle.bed1)}</code></div>
-                        <div>🛏️ <strong>Bed 2 Code:</strong> <code>${escapeAttr(bundle.bed2)}</code></div>
-                        <div>🛏️ <strong>Bed 3 Code:</strong> <code>${escapeAttr(bundle.bed3)}</code></div>
+                        <div>🛏️ <strong>Bed 1 Code:</strong> <code>${escapeAttr(bundle.bed1)}</code> ${bundle.rev1 > 0 ? `<small style="color:#4f46e5">(Key #${bundle.rev1 + 1})</small>` : ''}</div>
+                        <div>🛏️ <strong>Bed 2 Code:</strong> <code>${escapeAttr(bundle.bed2)}</code> ${bundle.rev2 > 0 ? `<small style="color:#4f46e5">(Key #${bundle.rev2 + 1})</small>` : ''}</div>
+                        <div>🛏️ <strong>Bed 3 Code:</strong> <code>${escapeAttr(bundle.bed3)}</code> ${bundle.rev3 > 0 ? `<small style="color:#4f46e5">(Key #${bundle.rev3 + 1})</small>` : ''}</div>
                     </div>
                 </div>`;
         }
@@ -2559,10 +2746,11 @@
         }
 
         function findStudentInfoForAttendance(rec) {
+            const uniqueList = getUniqueStudentEntries();
             const recPhone = rec.phone || "";
             const recTen = extractIndian10Digit(recPhone);
             if (recTen.length === 10) {
-                const st = registeredStudents["91" + recTen];
+                const st = uniqueList.find(x => keyOf(x.phone || x.firebaseKey) === "91" + recTen);
                 if (st) {
                     return {
                         name: st.name || rec.name || "Student",
@@ -2572,19 +2760,16 @@
                     };
                 }
             }
-            const matchedKey = Object.keys(registeredStudents).find(k => {
-                const st = registeredStudents[k];
-                return st &&
-                    String(st.name || "").trim().toLowerCase() === String(rec.name || "").trim().toLowerCase() &&
-                    (!rec.room || String(st.room) === String(rec.room));
-            });
-            if (matchedKey) {
-                const st = registeredStudents[matchedKey];
+            const matchedSt = uniqueList.find(st =>
+                normalizeStudentName(st.name) === normalizeStudentName(rec.name) &&
+                (!rec.room || String(st.room) === String(rec.room))
+            );
+            if (matchedSt) {
                 return {
-                    name: st.name || rec.name || "Student",
-                    room: st.room || rec.room || "--",
-                    bed: st.bed || rec.bed || "--",
-                    phone: formatPhoneDisplay(st.phone || matchedKey)
+                    name: matchedSt.name || rec.name || "Student",
+                    room: matchedSt.room || rec.room || "--",
+                    bed: matchedSt.bed || rec.bed || "--",
+                    phone: formatPhoneDisplay(matchedSt.phone || matchedSt.firebaseKey)
                 };
             }
             return {
@@ -2807,7 +2992,6 @@
             window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
         }
 
-        /* Complaints */
         function renderComplaintBox() {
             const content = document.getElementById('modal-content');
             let h = `<h2>🛠️ Complaint Box</h2><hr style="margin:10px 0">`;
@@ -2912,7 +3096,6 @@
             document.getElementById('modal-content').innerHTML = `<h2 style="display:none">Image</h2><img src="${escapeAttr(src)}" style="width:100%;max-height:75vh;object-fit:contain;border-radius:8px">`;
         }
 
-        /* Rules */
         function renderHostelRules() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
@@ -2957,7 +3140,6 @@
             }
         }
 
-        /* Room Allocation (Floor -> Room -> Bed click inspection, Admission No/Name or Login details, Edit & Allot/Call to Room Allotment) */
         function getRoomFloorLabel(room) {
             const n = parseInt(room, 10);
             if (n >= 101 && n <= 135) return "Ground Floor";
@@ -3011,7 +3193,7 @@
             let html = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><strong>🛏️ Room ${escapeAttr(rm)} — Bed ${escapeAttr(bd)}</strong><span class="badge ${info.occupied ? 'badge-pending' : 'badge-resolved'}">${info.occupied ? 'Already Set' : 'Available / Empty'}</span></div>`;
 
             if (info.admissionDetails) {
-                html += `<div style="margin-top:8px"><strong>🎓 Admission Details:</strong><br>• <strong>Admission No.:</strong> <code>${escapeAttr(info.admissionDetails.admissionNo)}</code><br>• <strong>Name:</strong> ${escapeAttr(info.admissionDetails.name)}${info.admissionDetails.phone ? `<br>• <strong>Phone:</strong> ${escapeAttr(info.admissionDetails.phone)}` : ''}${info.admissionDetails.admittedAt ? `<br>• <strong>Admitted On:</strong> ${escapeAttr(info.admissionDetails.admittedAt)}` : ''}</div>`;
+                html += `<div style="margin-top:8px"><strong>🎓 Admission Details:</strong><br>• <strong>Admission No.:</strong> <code>${escapeAttr(info.admissionDetails.admissionNo)}</code><br>• <strong>Session:</strong> ${escapeAttr(info.admissionDetails.session || getDefaultSessionLabel())}<br>• <strong>Name:</strong> ${escapeAttr(info.admissionDetails.name)}${info.admissionDetails.phone ? `<br>• <strong>Phone:</strong> ${escapeAttr(info.admissionDetails.phone)}` : ''}${info.admissionDetails.admittedAt ? `<br>• <strong>Admitted On:</strong> ${escapeAttr(info.admissionDetails.admittedAt)}` : ''}</div>`;
             }
 
             if (info.loginDetails) {
@@ -3038,7 +3220,7 @@
             if (st) {
                 h += `
                 <div style="background:#e0e7ff;padding:15px;border-radius:10px;margin-bottom:15px">
-                    <h4>Room Allotment & Bed Selector (3 Beds per Room)</h4>
+                    <h4>Room Allotment & Bed Selector (1 Bed = 1 Student, 3 Beds per Room)</h4>
                     <label style="font-size:12px;font-weight:bold;display:block;margin-top:8px">1. Select Floor:</label>
                     <select id="alloc-floor" onchange="updateRooms('alloc-floor','alloc-room'); selectedAllotBed=''; onAllotBedSelect()" style="width:100%;margin:4px 0;padding:8px">
                         <option value="">-- Choose Floor --</option>
@@ -3108,6 +3290,66 @@
             content.innerHTML = h + `</div>`;
         }
 
+        async function setSingleBedValue(rm, bedNum, newName, extraMeta = {}) {
+            if (!rm || !["1", "2", "3"].includes(String(bedNum))) return;
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
+            const ex = roomAllocations.find(r => String(r.room) === String(rm));
+            let s1 = (ex && ex.student1) || "Vacant";
+            let s2 = (ex && ex.student2) || "Vacant";
+            let s3 = (ex && ex.student3) || "Vacant";
+
+            if (String(bedNum) === "1") s1 = newName;
+            else if (String(bedNum) === "2") s2 = newName;
+            else if (String(bedNum) === "3") s3 = newName;
+
+            const prevDetails = (ex && Array.isArray(ex.students))
+                ? ex.students.filter(x => String(x.bed) !== String(bedNum))
+                : [
+                    { bed: "1", name: s1, phone: "", admissionNo: "", session: getDefaultSessionLabel() },
+                    { bed: "2", name: s2, phone: "", admissionNo: "", session: getDefaultSessionLabel() },
+                    { bed: "3", name: s3, phone: "", admissionNo: "", session: getDefaultSessionLabel() }
+                ].filter(x => String(x.bed) !== String(bedNum) && x.name && x.name !== "Vacant");
+
+            if (newName && newName !== "Vacant") {
+                const existingDet = (ex && Array.isArray(ex.students))
+                    ? ex.students.find(x => String(x.bed) === String(bedNum))
+                    : null;
+                prevDetails.push({
+                    bed: String(bedNum),
+                    name: newName,
+                    phone: extraMeta.phone || (existingDet && existingDet.phone) || "",
+                    admissionNo: extraMeta.admissionNo || (existingDet && existingDet.admissionNo) || `ADM-${rm}-B${bedNum}`,
+                    session: extraMeta.session || (existingDet && existingDet.session) || getDefaultSessionLabel(),
+                    isReAdmission: !!extraMeta.isReAdmission,
+                    admittedAt: extraMeta.admittedAt || (existingDet && existingDet.admittedAt) || Date.now(),
+                    allottedAt: Date.now()
+                });
+            }
+            prevDetails.sort((a, b) => (parseInt(a.bed, 10) || 0) - (parseInt(b.bed, 10) || 0));
+
+            const occupiedCount = [s1, s2, s3].filter(x => x && String(x).trim() && x !== "Vacant").length;
+            const sessionLabel = extraMeta.session || (ex && ex.session) || getDefaultSessionLabel();
+
+            const payload = {
+                room: String(rm),
+                floorLabel: getRoomFloorLabel(rm),
+                session: sessionLabel,
+                student1: s1,
+                student2: s2,
+                student3: s3,
+                students: prevDetails,
+                status: occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`,
+                updatedAt: Date.now()
+            };
+
+            if (ex) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), payload);
+            } else {
+                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), payload);
+            }
+        }
+
         async function persistRoomAllotment(rm, bedNum, stuName, rawPhone) {
             if (!rm || !bedNum || !["1", "2", "3"].includes(String(bedNum))) {
                 alert("Please select Floor, Room Number, and Bed (1, 2, or 3)!");
@@ -3129,71 +3371,19 @@
                 formattedPhone = pCheck.formatted;
             }
 
-            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-
-            const ex = roomAllocations.find(r => String(r.room) === String(rm));
-            let s1 = (ex && ex.student1) || "Vacant";
-            let s2 = (ex && ex.student2) || "Vacant";
-            let s3 = (ex && ex.student3) || "Vacant";
-
-            if (String(bedNum) === "1") s1 = cleanName;
-            else if (String(bedNum) === "2") s2 = cleanName;
-            else if (String(bedNum) === "3") s3 = cleanName;
-
-            const prevDetails = (ex && Array.isArray(ex.students))
-                ? ex.students.filter(x => String(x.bed) !== String(bedNum))
-                : [
-                    { bed: "1", name: s1, phone: "", admissionNo: "" },
-                    { bed: "2", name: s2, phone: "", admissionNo: "" },
-                    { bed: "3", name: s3, phone: "", admissionNo: "" }
-                ].filter(x => String(x.bed) !== String(bedNum) && x.name && x.name !== "Vacant");
-
-            if (cleanName !== "Vacant") {
-                const existingDet = (ex && Array.isArray(ex.students))
-                    ? ex.students.find(x => String(x.bed) === String(bedNum))
-                    : null;
-                prevDetails.push({
-                    bed: String(bedNum),
-                    name: cleanName,
-                    phone: formattedPhone || (existingDet && existingDet.phone) || "",
-                    admissionNo: (existingDet && existingDet.admissionNo) || `ADM-${rm}-B${bedNum}`,
-                    admittedAt: (existingDet && existingDet.admittedAt) || Date.now(),
-                    allottedAt: Date.now()
-                });
-            }
-            prevDetails.sort((a, b) => (parseInt(a.bed, 10) || 0) - (parseInt(b.bed, 10) || 0));
-
-            const occupiedCount = [s1, s2, s3].filter(x => x && String(x).trim() && x !== "Vacant").length;
-            const status = occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`;
-            const floorLabel = getRoomFloorLabel(rm);
-
-            const payload = {
-                room: String(rm),
-                floorLabel,
-                student1: s1,
-                student2: s2,
-                student3: s3,
-                students: prevDetails,
-                status,
-                updatedAt: Date.now()
-            };
-
-            if (ex) {
-                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), payload);
-            } else {
-                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), payload);
-            }
+            await setSingleBedValue(rm, bedNum, cleanName, { phone: formattedPhone });
 
             if (formattedPhone && cleanName !== "Vacant") {
                 const pk = keyOf(formattedPhone);
                 if (pk) {
                     const prevReg = registeredStudents[pk] || {};
-                    await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${pk}`), {
+                    await upsertSingleBedStudentRecord(pk, {
                         name: cleanName,
                         phone: formattedPhone,
                         room: String(rm),
                         bed: String(bedNum),
                         allotted: true,
+                        activeResident: true,
                         lastLogin: prevReg.lastLogin || Date.now()
                     });
                 }
@@ -3252,7 +3442,10 @@
             onAllotBedSelect();
         }
 
-        /* Admission + Bed 🛏️ + Green/Red Dot + Delete Box (Separate Admission Box) */
+        function canCurrentStaffDoReAdmission() {
+            return !!(currentUser && currentUser.role === 'staff' && READMISSION_AUTHORIZED_ROLES.includes(currentUser.position));
+        }
+
         function selectBedFromDot(bedNum) {
             const bedSel = document.getElementById('adm-target-bed');
             if (bedSel) {
@@ -3262,15 +3455,20 @@
         }
 
         function onAdmissionBedPreview() {
-            const rm = document.getElementById('adm-room') ? document.getElementById('adm-room').value : "";
+            const rmEl = document.getElementById('adm-room');
             const bdSel = document.getElementById('adm-target-bed');
-            const bd = bdSel ? bdSel.value : "";
+            const modeSel = document.getElementById('adm-mode');
             const infoEl = document.getElementById('adm-bed-status-note');
             const dotsEl = document.getElementById('adm-bed-dots-preview');
             if (!infoEl) return;
 
+            const rm = rmEl ? rmEl.value : "";
+            const bd = bdSel ? bdSel.value : "";
+            const mode = modeSel ? modeSel.value : "new";
+
             if (!rm) {
-                infoEl.innerText = "Select a Floor and Room first, then click a Bed (🟢 Green = Available, 🔴 Red = Occupied).";
+                infoEl.style.color = "#374151";
+                infoEl.innerText = "Select a Floor and Room No. first — bed status & dynamic key info will appear immediately.";
                 if (dotsEl) dotsEl.innerHTML = '';
                 return;
             }
@@ -3288,31 +3486,68 @@
             }
 
             if (bd && occMap[bd]) {
+                const activeKey = getRandomBedCode(rm, bd);
                 if (occMap[bd].occupied) {
                     infoEl.style.color = "#dc2626";
-                    infoEl.innerText = `🔴 Bed ${bd} is already occupied by ${occMap[bd].holder} (${occMap[bd].reason}). New admission is not allowed on this bed — please select a 🟢 Green bed.`;
+                    infoEl.innerText = mode === "readmission"
+                        ? `🔴 Room ${rm}, Bed ${bd} is currently occupied by ${occMap[bd].holder}. Vacate or choose a 🟢 Green bed for Re-Admission / Transfer.`
+                        : `🔴 Room ${rm}, Bed ${bd} is already occupied by ${occMap[bd].holder} (${occMap[bd].reason}). Choose a 🟢 Green bed.`;
                 } else {
                     infoEl.style.color = "#059669";
-                    infoEl.innerText = `🟢 Bed ${bd} is available with no existing admission or login. You can assign a new admission to this bed.`;
+                    infoEl.innerText = mode === "readmission"
+                        ? `🟢 Room ${rm}, Bed ${bd} is open for Re-Admission / Room Change (Current Admin Key: ${activeKey}; will auto-rotate on Re-Admission).`
+                        : `🟢 Room ${rm}, Bed ${bd} is available for New Admission (Current Admin Key: ${activeKey}).`;
                 }
             } else {
                 infoEl.style.color = "#374151";
-                infoEl.innerText = `Room ${rm} Bed Status: 🟢 Green = Available for admission, 🔴 Red = Already occupied (new admission blocked).`;
+                infoEl.innerText = `Room ${rm} selected — choose or click Bed 1, Bed 2, or Bed 3 to inspect status immediately.`;
             }
+        }
+
+        function onAdmissionModeChange() {
+            const modeSel = document.getElementById('adm-mode');
+            const mode = modeSel ? modeSel.value : "new";
+            if (mode === "readmission" && !canCurrentStaffDoReAdmission()) {
+                if (modeSel) modeSel.value = "new";
+                alert(`Access Restricted: Re-Admission / Annual Room Change is allowed ONLY for Hostel Incharge, Hostel Supervisor, and Hostel Administrative (with their secret key).`);
+                onAdmissionModeChange();
+                return;
+            }
+            const prevWrap = document.getElementById('adm-prev-bed-wrap');
+            if (prevWrap) {
+                prevWrap.style.display = mode === "readmission" ? "block" : "none";
+            }
+            onAdmissionBedPreview();
         }
 
         function renderAdmissionModule() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
+            const canReAdmitRole = canCurrentStaffDoReAdmission();
             const totalRooms = getAllHostelRooms().length;
             const totalBeds = totalRooms * 3;
+            const defaultSession = getDefaultSessionLabel();
 
             let occupiedRoomsCount = 0;
             let totalOccupiedBeds = 0;
+            const activeOccupants = [];
+
             roomAllocations.forEach(ra => {
                 const occ = [ra.student1, ra.student2, ra.student3].filter(x => x && String(x).trim() && x !== "Vacant").length;
                 if (occ > 0) occupiedRoomsCount++;
                 totalOccupiedBeds += occ;
+                ["1", "2", "3"].forEach(b => {
+                    const nm = b === "1" ? ra.student1 : b === "2" ? ra.student2 : ra.student3;
+                    if (nm && String(nm).trim() && nm !== "Vacant") {
+                        const det = Array.isArray(ra.students) ? ra.students.find(x => String(x.bed) === b) : null;
+                        activeOccupants.push({
+                            room: String(ra.room),
+                            bed: b,
+                            name: nm,
+                            phone: det && det.phone ? det.phone : ""
+                        });
+                    }
+                });
             });
 
             let h = `<h2>🎓 Admission & Bed Management</h2><hr style="margin:10px 0">`;
@@ -3329,7 +3564,28 @@
                 </div>
 
                 <div style="background:#e0e7ff;padding:15px;border-radius:10px;margin-bottom:15px">
-                    <h4>🎓 New Student Admission & Bed 🛏️ Selection</h4>
+                    <h4>🎓 Student Admission & Re-Admission / Room Change</h4>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:8px">Admission Type:</label>
+                    <select id="adm-mode" onchange="onAdmissionModeChange()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="new">New Admission</option>
+                        ${canReAdmitRole ? `<option value="readmission">🔑 Re-Admission / Annual Room Change / Transfer</option>` : ''}
+                    </select>
+                    ${!canReAdmitRole ? `<small style="display:block;color:#b45309;margin-top:3px">🔒 Re-Admission is restricted to Hostel Incharge, Hostel Supervisor, and Hostel Administrative with their secret code.</small>` : ''}
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Academic Session:</label>
+                    <input type="text" id="adm-session" value="${escapeAttr(defaultSession)}" placeholder="e.g. 2026-27 or 2027-28" style="width:100%;margin:4px 0;padding:8px">
+
+                    <div id="adm-prev-bed-wrap" style="display:none;background:#fff;padding:10px;border-radius:8px;border:1px solid #c7d2fe;margin-top:8px">
+                        <label style="font-size:12px;font-weight:bold;display:block">Previous Bed to Vacate Automatically (Optional for Re-Admission / Transfer):</label>
+                        <select id="adm-prev-bed" style="width:100%;margin:4px 0;padding:8px">
+                            <option value="">-- Keep / None (Manual or Fresh Entry) --</option>
+                            ${activeOccupants.map(o => `<option value="${escapeAttr(o.room)}|${escapeAttr(o.bed)}">Room ${escapeAttr(o.room)}, Bed ${escapeAttr(o.bed)} — ${escapeAttr(o.name)}</option>`).join('')}
+                        </select>
+                        <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">🔑 Authorized Secret Key (${escapeAttr(currentUser.position)}):</label>
+                        <input type="password" id="adm-readmit-key" placeholder="Enter your 7-digit secret code to authorize Re-Admission" style="width:100%;margin:4px 0;padding:8px">
+                    </div>
+
                     <label style="font-size:12px;font-weight:bold;display:block;margin-top:8px">Student Full Name:</label>
                     <input type="text" id="adm-stu-name" placeholder="Enter student full name" style="width:100%;margin:4px 0;padding:8px">
 
@@ -3362,7 +3618,7 @@
                         <option value="3">🛏️ Bed 3</option>
                     </select>
 
-                    <p id="adm-bed-status-note" style="font-size:12px;color:#374151;background:#fff;padding:8px 10px;border-radius:6px;margin-top:8px">Select a Floor and Room first, then click a Bed (🟢 Green = Available, 🔴 Red = Occupied).</p>
+                    <p id="adm-bed-status-note" style="font-size:12px;color:#374151;background:#fff;padding:8px 10px;border-radius:6px;margin-top:8px">Select a Floor and Room No. first — bed status & dynamic key info will appear immediately.</p>
 
                     <button class="btn" style="margin-top:10px" onclick="admitAndAllocateStudent()">✅ Confirm Admission & Assign Bed 🛏️</button>
                 </div>`;
@@ -3378,6 +3634,7 @@
                 const b3 = ra.student3 || "Vacant";
                 const occCount = [b1, b2, b3].filter(x => x && String(x).trim() && x !== "Vacant").length;
                 const floorTxt = ra.floorLabel || getRoomFloorLabel(ra.room);
+                const sessTxt = ra.session || defaultSession;
 
                 const detailsList = Array.isArray(ra.students) && ra.students.length
                     ? ra.students
@@ -3390,7 +3647,11 @@
                     detailsHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #d1d5db;font-size:12px;color:#374151">`;
                     detailsList.forEach(sd => {
                         const admCode = sd.admissionNo || `ADM-${ra.room}-B${sd.bed}`;
-                        detailsHtml += `<div style="margin-bottom:4px">🛏️ <strong>Bed ${escapeAttr(sd.bed)}:</strong> <code>${escapeAttr(admCode)}</code> — ${escapeAttr(sd.name)}${sd.phone ? ` • 📞 ${escapeAttr(formatPhoneDisplay(sd.phone))}` : ''}${sd.admittedAt ? ` • 🗓️ ${escapeAttr(formatDisplayDate(new Date(sd.admittedAt)))}` : ''}</div>`;
+                        const reTag = sd.isReAdmission ? ` • <span style="color:#4f46e5;font-weight:bold">Re-Admitted</span>` : '';
+                        detailsHtml += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                            <span>🛏️ <strong>Bed ${escapeAttr(sd.bed)}:</strong> <code>${escapeAttr(admCode)}</code> — ${escapeAttr(sd.name)}${sd.phone ? ` • 📞 ${escapeAttr(formatPhoneDisplay(sd.phone))}` : ''}${reTag}</span>
+                            ${st ? `<button type="button" onclick="vacateBed('${escapeAttr(ra.room)}','${escapeAttr(sd.bed)}','${escapeAttr(sd.name)}','${escapeAttr(sd.phone || '')}')" style="background:#f59e0b;color:#fff;border:none;padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:bold">🚪 Vacate Bed</button>` : ''}
+                        </div>`;
                     });
                     detailsHtml += `</div>`;
                 }
@@ -3398,7 +3659,7 @@
                 h += `
                     <div class="item-card">
                         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-                            <strong>Room ${escapeAttr(ra.room)} (${escapeAttr(floorTxt)}) • ${occCount}/3 Beds</strong>
+                            <strong>Room ${escapeAttr(ra.room)} (${escapeAttr(floorTxt)}) • Session ${escapeAttr(sessTxt)} • ${occCount}/3 Beds</strong>
                             <span class="badge ${occCount >= 3 ? 'badge-paid' : 'badge-pending'}">${occCount >= 3 ? 'Full (3/3)' : `Occupied (${occCount}/3)`}</span>
                         </div>
                         <p style="margin-top:6px;font-size:13px">🛏️ <strong>Bed 1:</strong> ${escapeAttr(b1)} | 🛏️ <strong>Bed 2:</strong> ${escapeAttr(b2)} | 🛏️ <strong>Bed 3:</strong> ${escapeAttr(b3)}</p>
@@ -3409,9 +3670,15 @@
 
             if (st) {
                 h += `
+                    <div class="future-lifecycle-panel">
+                        <h4 style="color:#065f46;margin-bottom:6px">🔄 Future Leave / Re-Admission / Annual Room Change Controls</h4>
+                        <p style="font-size:12px;color:#374151;margin-bottom:10px">When students leave the hostel, get re-admitted, or rotate rooms for a new academic year, use <strong>Vacate Bed</strong> above, <strong>Re-Admission / Annual Room Change</strong> above (Incharge / Supervisor / Administrative + Secret Key), or prepare a fresh session below.</p>
+                        <button type="button" onclick="prepareNewAcademicSession()" style="background:#059669;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-weight:bold;font-size:12px;cursor:pointer">🗓️ Start New Session & Vacate All Beds</button>
+                    </div>
+
                     <div class="delete-box-panel">
                         <h4 style="color:#dc2626;margin-bottom:8px">🗑️ Delete Box (Admission Records)</h4>
-                        <p style="font-size:12px;color:#4b5563;margin-bottom:8px">Select an admission or room allocation record below to delete it.</p>
+                        <p style="font-size:12px;color:#4b5563;margin-bottom:8px">Select a room/bed record to delete. Confirmation will ask with Room No. & Bed No., and the deleted bed's key will rotate automatically.</p>
                         <div style="display:flex;gap:8px;flex-wrap:wrap">
                             <select id="delete-box-select" style="flex:1;min-width:200px;padding:8px;border:1px solid #fca5a5;border-radius:8px;background:#fff">
                                 <option value="">-- Select Admission Record to Delete --</option>
@@ -3428,7 +3695,59 @@
             content.innerHTML = h;
         }
 
+        async function vacateBed(rm, bedNum, stuName, phoneStr = "") {
+            if (!confirm(`Vacate Room ${rm}, Bed ${bedNum} (${stuName})?\n\nThis will mark the bed as Vacant so it can be re-allocated or used for re-admission.`)) return;
+            await setSingleBedValue(rm, bedNum, "Vacant", {});
+            if (phoneStr) {
+                const pk = keyOf(phoneStr);
+                if (pk && registeredStudents[pk]) {
+                    await window.rtdbUpdate(window.rtdbRef(window.db, `registered_students/${pk}`), {
+                        activeResident: false,
+                        vacatedAt: Date.now()
+                    }).catch(() => {});
+                }
+            }
+            showToast(`🚪 Room ${rm}, Bed ${bedNum} vacated.`);
+            renderAdmissionModule();
+        }
+
+        async function prepareNewAcademicSession() {
+            const nextSess = prompt("Enter New Academic Session (e.g. 2027-28):", getDefaultSessionLabel());
+            if (!nextSess || !nextSess.trim()) return;
+            if (!confirm(`Start New Session "${nextSess.trim()}" and mark all currently allocated beds as Vacant for annual room change / re-admission?`)) return;
+
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            for (const ra of roomAllocations) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ra.firebaseId}`), {
+                    session: nextSess.trim(),
+                    student1: "Vacant",
+                    student2: "Vacant",
+                    student3: "Vacant",
+                    students: [],
+                    status: "Occupied (0/3)",
+                    updatedAt: Date.now()
+                });
+            }
+            showToast(`🗓️ New session ${nextSess.trim()} ready — all beds vacated.`);
+            renderAdmissionModule();
+        }
+
         async function admitAndAllocateStudent() {
+            const mode = document.getElementById('adm-mode') ? document.getElementById('adm-mode').value : "new";
+            const isReAdmission = mode === "readmission";
+
+            if (isReAdmission) {
+                if (!canCurrentStaffDoReAdmission()) {
+                    return alert("Access Denied: Only Hostel Incharge, Hostel Supervisor, or Hostel Administrative can perform Re-Admission / Annual Room Change.");
+                }
+                const enteredKey = document.getElementById('adm-readmit-key') ? document.getElementById('adm-readmit-key').value.trim() : "";
+                if (!enteredKey || enteredKey !== staffCodes[currentUser.position]) {
+                    return alert(`Invalid secret key for ${currentUser.position}! Please enter your 7-digit secret code to authorize Re-Admission.`);
+                }
+            }
+
+            const sessionLabel = (document.getElementById('adm-session') ? document.getElementById('adm-session').value.trim() : "") || getDefaultSessionLabel();
+            const prevBedRaw = document.getElementById('adm-prev-bed') ? document.getElementById('adm-prev-bed').value : "";
             const stuName = document.getElementById('adm-stu-name').value.trim();
             const rawPhone = document.getElementById('adm-stu-phone').value.trim();
             const rm = document.getElementById('adm-room').value;
@@ -3437,11 +3756,6 @@
             if (!stuName) return alert("Please enter student full name for admission!");
             if (!rm) return alert("Please select floor and room number!");
             if (!targetBed || !["1", "2", "3"].includes(targetBed)) return alert("Please select Bed 1, Bed 2, or Bed 3!");
-
-            const occMap = getBedOccupancyMap(rm);
-            if (occMap[targetBed] && occMap[targetBed].occupied) {
-                return alert(`🔴 Bed ${targetBed} (Room ${rm}) is already occupied by ${occMap[targetBed].holder} (${occMap[targetBed].reason}). New admission is not allowed on this bed!`);
-            }
 
             let formattedPhone = "";
             if (rawPhone) {
@@ -3452,6 +3766,22 @@
 
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
 
+            let vacatedPrevBedLabel = "";
+            if (isReAdmission && prevBedRaw && prevBedRaw.includes("|")) {
+                const [prevRm, prevBd] = prevBedRaw.split("|");
+                if (prevRm && prevBd && !(String(prevRm) === String(rm) && String(prevBd) === String(targetBed))) {
+                    await setSingleBedValue(prevRm, prevBd, "Vacant", { session: sessionLabel });
+                    await rotateSingleBedKey(prevRm, prevBd, "readmission-vacated");
+                    vacatedPrevBedLabel = `Room ${prevRm}, Bed ${prevBd}`;
+                }
+            }
+
+            const occMap = getBedOccupancyMap(rm);
+            const isMovingSameBed = isReAdmission && prevBedRaw === `${rm}|${targetBed}`;
+            if (!isMovingSameBed && occMap[targetBed] && occMap[targetBed].occupied) {
+                return alert(`🔴 Bed ${targetBed} (Room ${rm}) is already occupied by ${occMap[targetBed].holder} (${occMap[targetBed].reason}). Please vacate or choose a 🟢 Green bed!`);
+            }
+
             const ex = roomAllocations.find(r => String(r.room) === String(rm));
             let s1 = (ex && ex.student1) || "Vacant";
             let s2 = (ex && ex.student2) || "Vacant";
@@ -3461,14 +3791,15 @@
             else if (targetBed === "2") s2 = stuName;
             else if (targetBed === "3") s3 = stuName;
 
-            const admNo = `ADM-${rm}-B${targetBed}-${String(Date.now()).slice(-4)}`;
+            const admPrefix = isReAdmission ? "READM" : "ADM";
+            const admNo = `${admPrefix}-${rm}-B${targetBed}-${String(Date.now()).slice(-4)}`;
 
             const prevDetails = (ex && Array.isArray(ex.students))
                 ? ex.students.filter(x => String(x.bed) !== String(targetBed))
                 : [
-                    { bed: "1", name: s1, phone: "", admissionNo: "" },
-                    { bed: "2", name: s2, phone: "", admissionNo: "" },
-                    { bed: "3", name: s3, phone: "", admissionNo: "" }
+                    { bed: "1", name: s1, phone: "", admissionNo: "", session: sessionLabel },
+                    { bed: "2", name: s2, phone: "", admissionNo: "", session: sessionLabel },
+                    { bed: "3", name: s3, phone: "", admissionNo: "", session: sessionLabel }
                 ].filter(x => String(x.bed) !== String(targetBed) && x.name && x.name !== "Vacant");
 
             prevDetails.push({
@@ -3476,6 +3807,8 @@
                 name: stuName,
                 phone: formattedPhone,
                 admissionNo: admNo,
+                session: sessionLabel,
+                isReAdmission,
                 admittedAt: Date.now()
             });
             prevDetails.sort((a, b) => (parseInt(a.bed, 10) || 0) - (parseInt(b.bed, 10) || 0));
@@ -3487,6 +3820,7 @@
             const payload = {
                 room: String(rm),
                 floorLabel,
+                session: sessionLabel,
                 student1: s1,
                 student2: s2,
                 student3: s3,
@@ -3501,23 +3835,36 @@
                 await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), payload);
             }
 
+            let rotatedNewKey = "";
+            if (isReAdmission) {
+                rotatedNewKey = await rotateSingleBedKey(rm, targetBed, "readmission");
+            }
+
             if (formattedPhone) {
                 const pk = keyOf(formattedPhone);
                 if (pk) {
                     const existingReg = registeredStudents[pk] || {};
-                    await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${pk}`), {
+                    await upsertSingleBedStudentRecord(pk, {
                         name: stuName,
                         phone: formattedPhone,
                         room: String(rm),
                         bed: String(targetBed),
+                        session: sessionLabel,
                         admissionNo: admNo,
                         admitted: true,
+                        isReAdmission,
+                        activeResident: true,
                         lastLogin: existingReg.lastLogin || Date.now()
                     });
                 }
             }
 
-            alert(`Admission & Bed Allocation complete!\nAdmission No: ${admNo}\nStudent: ${stuName}\nRoom: ${rm} (${floorLabel}), Bed ${targetBed}`);
+            const keyMsg = isReAdmission && rotatedNewKey
+                ? `\nAuto-Rotated Admin Key (Room ${rm}, Bed ${targetBed}): ${rotatedNewKey}`
+                : "";
+            const prevMsg = vacatedPrevBedLabel ? `\nVacated Previous Bed: ${vacatedPrevBedLabel}` : "";
+
+            alert(`${isReAdmission ? 'Re-Admission / Room Change' : 'Admission & Bed Allocation'} complete!\nSession: ${sessionLabel}\nCode: ${admNo}\nStudent: ${stuName}\nRoom: ${rm} (${floorLabel}), Bed ${targetBed}${prevMsg}${keyMsg}`);
             renderAdmissionModule();
         }
 
@@ -3552,10 +3899,34 @@
 
         async function deleteAllocation(id) {
             if (!id) return;
-            if (confirm("Are you sure you want to delete this room allocation / admission?")) {
-                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${id}`));
-                showToast("Record deleted.");
+            const targetAlloc = roomAllocations.find(r => r.firebaseId === id);
+            const rmLabel = targetAlloc ? targetAlloc.room : "--";
+            const occupiedBeds = [];
+            if (targetAlloc) {
+                ["1", "2", "3"].forEach(b => {
+                    const nm = b === "1" ? targetAlloc.student1 : b === "2" ? targetAlloc.student2 : targetAlloc.student3;
+                    if (nm && String(nm).trim() && nm !== "Vacant") occupiedBeds.push(b);
+                });
+            }
+            const bedNoLabel = occupiedBeds.length ? occupiedBeds.join(", ") : "1, 2, 3";
+
+            if (!confirm(`Confirm Delete Record?\n\nRoom No.: ${rmLabel}\nBed No.: ${bedNoLabel}\n\nDeleting this record will automatically generate new keys for the affected bed(s).`)) {
+                return;
+            }
+
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${id}`));
+
+            const bedsToRotate = occupiedBeds.length ? occupiedBeds : ["1", "2", "3"];
+            if (targetAlloc && isValidHostelRoom(targetAlloc.room)) {
+                for (const b of bedsToRotate) {
+                    await rotateSingleBedKey(targetAlloc.room, b, "record-deleted");
+                }
+            }
+
+            showToast(`🗑️ Deleted Room ${rmLabel} (Bed ${bedNoLabel}) — new bed key generated.`);
+            if (document.querySelector('#modal-content h2') && document.querySelector('#modal-content h2').innerText.includes('Admission')) {
+                renderAdmissionModule();
             }
         }
 
@@ -3567,7 +3938,6 @@
             await deleteAllocation(sel.value);
         }
 
-        /* Fees (Room + Bed + Auto-Lookup + Edit/Send/Reset) */
         function getFeeRecordKey(room, bed) {
             const rm = String(room || "").trim();
             const bd = String(bed || "").trim();
@@ -3587,15 +3957,14 @@
             const bd = String(bed || "").trim();
             if (!rm || !bd) return null;
 
-            const matchedReg = Object.keys(registeredStudents)
-                .map(k => ({ key: k, ...registeredStudents[k] }))
-                .filter(st => String(st.room || "").trim() === rm && String(st.bed || "").trim() === bd)
+            const matchedReg = getUniqueStudentEntries()
+                .filter(st => st.activeResident !== false && String(st.room || "").trim() === rm && String(st.bed || "").trim() === bd)
                 .sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0));
 
             if (matchedReg.length > 0) {
                 return {
                     name: matchedReg[0].name || "",
-                    phone: formatPhoneDisplay(matchedReg[0].phone || matchedReg[0].key),
+                    phone: formatPhoneDisplay(matchedReg[0].phone || matchedReg[0].firebaseKey),
                     source: "Logged-in Student"
                 };
             }
@@ -3739,7 +4108,7 @@
                 };
                 const bedLabel = currentUser.bed ? ` | Bed ${currentUser.bed}` : '';
                 const updatedNote = f.updatedAt ? `<p style="font-size:11px;color:#6b7280;margin-top:6px">Last Updated: ${escapeAttr(new Date(f.updatedAt).toLocaleString())}${f.updatedBy ? ` by ${escapeAttr(f.updatedBy)}` : ''}</p>` : '';
-                h += `<div class="item-card" style="border-left-color:${f.status === 'Paid' ? '#10b981' : '#f59e0b'}"><h3>Private Record: Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)}</h3><p style="margin-top:8px"><strong>Student Name:</strong> ${escapeAttr(f.name || currentUser.name)}</p><p><strong>Room & Bed:</strong> Room ${escapeAttr(currentUser.room)}${currentUser.bed ? `, Bed ${currentUser.bed}` : ''}</p><p><strong>Annual Fee:</strong> ${escapeAttr(f.annualFee)}</p><p><strong>Mess Dues:</strong> ${escapeAttr(f.messDues)}</p><p style="margin-top:8px"><strong>Payment Status:</strong> <span class="badge ${f.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(f.status)}</span></p>${updatedNote}</div>`;
+                h += `<div class="item-card" style="border-left-color:${f.status === 'Paid' ? '#10b981' : '#f59e0b'}"><h3>Private Record: Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)}</h3><p style="margin-top:8px"><strong>Student Name:</strong> ${escapeAttr(f.name || currentUser.name)}</p><p><strong>Room & Bed:</strong> Room ${escapeAttr(f.room)}${currentUser.bed ? `, Bed ${currentUser.bed}` : ''}</p><p><strong>Annual Fee:</strong> ${escapeAttr(f.annualFee)}</p><p><strong>Mess Dues:</strong> ${escapeAttr(f.messDues)}</p><p style="margin-top:8px"><strong>Payment Status:</strong> <span class="badge ${f.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(f.status)}</span></p>${updatedNote}</div>`;
             } else {
                 h += `<div style="background:#f3f4f6;padding:15px;border-radius:8px;margin-bottom:15px"><h4 id="form-title">Manage Student Fee Record</h4>
                 <label style="font-size:12px;font-weight:bold;margin-top:8px;display:block">Select Floor:</label>
@@ -3851,7 +4220,6 @@
             }
         }
 
-        /* Out-pass */
         function renderOutPass() {
             const content = document.getElementById('modal-content');
             let h = `<h2>📝 Out-Pass / Leave Application</h2><hr style="margin:10px 0">`;
@@ -3912,7 +4280,6 @@
             showToast(`Leave pass ${status}.`);
         }
 
-        /* Staff directory */
         function renderStaffDirectory() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
@@ -3969,7 +4336,6 @@
             }
         }
 
-        /* Notices */
         async function addNotice() {
             const t = document.getElementById('nt-title').value.trim();
             const b = document.getElementById('nt-body').value.trim();
