@@ -311,13 +311,69 @@
             display: none;
         }
 
-        .logout-btn {
-            background: #ef4444;
-            margin-top: 25px;
+        .student-confirm-banner {
+            display: none;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            border-left: 4px solid #10b981;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            text-align: left;
         }
 
-        .logout-btn:hover {
-            background: #dc2626;
+        .bed-dot-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .bed-dot-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 11px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #111827;
+            cursor: pointer;
+        }
+
+        .bed-dot-chip.selected-bed {
+            border-color: var(--primary);
+            background: #eef2ff;
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.18);
+        }
+
+        .dot-green {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #10b981;
+            display: inline-block;
+        }
+
+        .dot-red {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #ef4444;
+            display: inline-block;
+        }
+
+        .bed-inspect-box {
+            background: #ffffff;
+            border: 1px solid #c7d2fe;
+            border-left: 4px solid var(--primary);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #1f2937;
         }
 
         .modal-overlay {
@@ -443,6 +499,34 @@
             margin-bottom: 18px;
         }
 
+        .cal-month-nav {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .cal-nav-btn {
+            background: #ffffff;
+            color: #1f2937;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .cal-nav-btn:hover:not(:disabled) {
+            background: #eef2ff;
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .cal-nav-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
         .prev-cal-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
@@ -547,11 +631,14 @@
         }
 
         .dev-avatar {
-            width: 120px;
-            height: 120px;
+            width: 124px;
+            height: 124px;
             border-radius: 50%;
             border: 4px solid var(--primary);
             margin-bottom: 15px;
+            background: #fdf2f8;
+            object-fit: cover;
+            box-shadow: 0 8px 20px rgba(79, 70, 229, 0.25);
         }
 
         .dev-info-box {
@@ -586,6 +673,42 @@
             font-size: 11px;
             color: #6b7280;
             font-weight: 600;
+        }
+
+        .stats-mini-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin: 10px 0 14px;
+        }
+
+        .stat-pill {
+            background: #fff;
+            border: 1px solid #dbeafe;
+            border-radius: 10px;
+            padding: 10px 6px;
+            text-align: center;
+        }
+
+        .stat-pill b {
+            display: block;
+            font-size: 18px;
+            color: var(--primary);
+        }
+
+        .stat-pill span {
+            font-size: 11px;
+            color: #4b5563;
+            font-weight: 600;
+        }
+
+        .delete-box-panel {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-left: 4px solid #ef4444;
+            border-radius: 10px;
+            padding: 14px;
+            margin-top: 16px;
         }
 
         #toast-wrap {
@@ -726,7 +849,7 @@
             <p>New Version Hostel Management Portal</p>
             <div id="header-user-badge" class="user-badge-header">
                 <span id="header-user-info">Logged in</span>
-                <button class="switch-btn" onclick="logoutSession()">Switch ID</button>
+                <button class="switch-btn" onclick="confirmSwitchAccount()">Switch ID</button>
             </div>
         </div>
 
@@ -788,6 +911,7 @@
                         <option value="2">Bed 2</option>
                         <option value="3">Bed 3</option>
                     </select>
+                    <div id="stu-bed-dots-preview" style="margin-top:8px"></div>
                 </div>
                 <div class="form-group" id="stu-bed-code-group" style="display:none">
                     <label>Bed Verification Code</label>
@@ -830,6 +954,8 @@
             </div>
 
             <div id="dashboard-screen" class="form-screen">
+                <div id="student-confirmation-box" class="student-confirm-banner"></div>
+
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;flex-wrap:wrap;gap:8px">
                     <div>
                         <h3 id="user-display-name">Welcome!</h3>
@@ -838,7 +964,12 @@
                     <span id="user-tag" style="background:#e0e7ff;color:#4f46e5;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:bold">Room: -- | Bed: --</span>
                 </div>
 
-                <div class="dashboard-grid">
+                <div id="dashboard-cards-grid" class="dashboard-grid">
+                    <div class="dash-card" id="dash-card-admission" style="display:none" onclick="openModule('admission')">
+                        <div class="icon">🎓</div>
+                        <h4>Admission</h4>
+                        <p>Student Admission & Delete Box</p>
+                    </div>
                     <div class="dash-card" onclick="openModule('notice')">
                         <div class="icon">📢</div>
                         <h4>Notice Board</h4>
@@ -866,15 +997,16 @@
                         <h4>Staff Directory</h4>
                         <p>Contacts</p>
                     </div>
-                    <div class="dash-card" onclick="openModule('allocation')">
+                    <div class="dash-card" id="dash-card-allocation" onclick="openModule('allocation')">
                         <div class="icon">🚪</div>
                         <h4>Room Allocation</h4>
-                        <p>Roommates</p>
+                        <p>Rooms & Beds</p>
                     </div>
                     <div class="dash-card" onclick="openModule('fee')">
                         <div class="icon">💰</div>
                         <h4>Fee & Payments</h4>
                         <p>Dues</p>
+                        <span id="card-badge-fee" class="notification-badge cbadge">0</span>
                     </div>
                     <div class="dash-card" onclick="openModule('outpass')">
                         <div class="icon">📝</div>
@@ -883,8 +1015,6 @@
                         <span id="card-badge-outpass" class="notification-badge cbadge">0</span>
                     </div>
                 </div>
-
-                <button class="btn logout-btn" onclick="logoutSession()">Logout / Switch Account</button>
             </div>
         </div>
     </div>
@@ -899,6 +1029,10 @@
     <script>
         const DEFAULT_TITLE = "My Hostel - Management Portal";
         const VEG_NONVEG_DAYS = ["Wednesday", "Friday", "Sunday"];
+        const PROTECTED_VIP_PHONE_10 = "7855998332";
+        const PROTECTED_VIP_PHONE_KEY = "91" + PROTECTED_VIP_PHONE_10;
+        const PROTECTED_VIP_PHONE_DISP = "+91 7855998332";
+
         const staffCodes = {
             "Chief Warden": "7854123",
             "Hostel Incharge": "6541230",
@@ -978,13 +1112,54 @@
             return String(val || "").trim().toUpperCase();
         }
 
+        /* Cartoon avatar with headphones 🎧 */
+        function getHeadphonesCartoonAvatarDataUrl() {
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+                <defs>
+                    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#fdf2f8"/>
+                        <stop offset="100%" stop-color="#e0e7ff"/>
+                    </linearGradient>
+                    <linearGradient id="teeGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#f9a8d4"/>
+                        <stop offset="100%" stop-color="#f472b6"/>
+                    </linearGradient>
+                </defs>
+                <rect width="240" height="240" rx="120" fill="url(#bgGrad)"/>
+                <ellipse cx="120" cy="212" rx="76" ry="44" fill="url(#teeGrad)"/>
+                <path d="M98 168 Q120 184 142 168 L146 190 Q120 202 94 190 Z" fill="#e5a97c"/>
+                <rect x="104" y="136" width="32" height="36" rx="14" fill="#ebb083"/>
+                <rect x="74" y="66" width="92" height="92" rx="44" fill="#f2ba8e"/>
+                <circle cx="96" cy="118" r="7" fill="#fb7185" opacity="0.32"/>
+                <circle cx="144" cy="118" r="7" fill="#fb7185" opacity="0.32"/>
+                <path d="M72 96 Q74 44 122 44 Q168 46 168 96 Q154 74 124 74 Q94 74 72 96 Z" fill="#1f2937"/>
+                <path d="M74 92 L68 112 L84 98 Z" fill="#1f2937"/>
+                <path d="M166 92 L172 112 L156 98 Z" fill="#1f2937"/>
+                <rect x="82" y="96" width="34" height="22" rx="8" fill="#111827" stroke="#374151" stroke-width="2.5"/>
+                <rect x="124" y="96" width="34" height="22" rx="8" fill="#111827" stroke="#374151" stroke-width="2.5"/>
+                <line x1="116" y1="104" x2="124" y2="104" stroke="#111827" stroke-width="3.5"/>
+                <line x1="88" y1="101" x2="98" y2="112" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" opacity="0.75"/>
+                <line x1="130" y1="101" x2="140" y2="112" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" opacity="0.75"/>
+                <path d="M104 134 Q120 146 136 134" fill="none" stroke="#7c2d12" stroke-width="3.5" stroke-linecap="round"/>
+                <path d="M56 112 C56 52, 184 52, 184 112" fill="none" stroke="#312e81" stroke-width="11" stroke-linecap="round"/>
+                <rect x="44" y="88" width="22" height="44" rx="10" fill="#4f46e5"/>
+                <rect x="50" y="95" width="7" height="30" rx="3.5" fill="#ec4899"/>
+                <rect x="174" y="88" width="22" height="44" rx="10" fill="#4f46e5"/>
+                <rect x="183" y="95" width="7" height="30" rx="3.5" fill="#ec4899"/>
+            </svg>`;
+            return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        }
+
         let currentUser = null;
         let activeMealTab = "Lunch";
-        let editingFeeRoom = null;
+        let editingFeeKey = null;
         let studentLoginInFlight = false;
+        let selectedAllotBed = "";
 
         let adminCalOpen = false;
         let selectedPrevDateKey = null;
+        let adminCalYear = null;
+        let adminCalMonth = null;
 
         let notices = [];
         let complaints = [];
@@ -1024,6 +1199,7 @@
         let lastReadPendingComplaints = parseInt(ls('myhostel_read_complaints', '0'), 10) || 0;
         let lastReadPendingOutpasses = parseInt(ls('myhostel_read_outpasses', '0'), 10) || 0;
         let unreadStudentOutpassAlerts = 0;
+        let unreadStudentFeeAlerts = 0;
 
         /* Indian 10-digit mobile number helpers (+91 prefix) */
         function extractIndian10Digit(raw) {
@@ -1036,7 +1212,13 @@
             return digits;
         }
 
+        function isProtectedVipPhone(rawOrKey) {
+            const ten = extractIndian10Digit(rawOrKey);
+            return ten === PROTECTED_VIP_PHONE_10 || String(rawOrKey || '') === PROTECTED_VIP_PHONE_KEY;
+        }
+
         function isValidIndian10Digit(tenDigits) {
+            if (String(tenDigits || '') === PROTECTED_VIP_PHONE_10) return true;
             return /^[6-9][0-9]{9}$/.test(String(tenDigits || ''));
         }
 
@@ -1059,7 +1241,7 @@
                     ok: false,
                     ten: "",
                     formatted: "",
-                    message: "Please enter a valid 10-digit Indian mobile number (10 digits starting with 6, 7, 8, or 9 after +91)."
+                    message: "Please enter a valid 10-digit Indian mobile number (starting with 6, 7, 8, or 9 after +91)."
                 };
             }
             return {
@@ -1290,6 +1472,22 @@
                 }
             });
 
+            const exactFeeKey = getFeeRecordKey(currentUser.room, currentUser.bed);
+            const myFee = feeRecords[exactFeeKey] || feeRecords[currentUser.room];
+            if (myFee) {
+                const feeSig = `${myFee.status || ''}_${myFee.annualFee || ''}_${myFee.messDues || ''}_${myFee.updatedAt || 0}`;
+                const prevFeeSig = seen['fee_' + exactFeeKey];
+                if (prevFeeSig === undefined) {
+                    seen['fee_' + exactFeeKey] = feeSig;
+                    changed = true;
+                } else if (prevFeeSig !== feeSig) {
+                    seen['fee_' + exactFeeKey] = feeSig;
+                    changed = true;
+                    unreadStudentFeeAlerts++;
+                    triggerSystemNotification("💰 Fee Status Updated", `Your Fee Status is now: ${myFee.status} (Annual: ${myFee.annualFee}, Mess: ${myFee.messDues})`, false);
+                }
+            }
+
             if (changed) {
                 saveSeen(seen);
                 updateNotificationBadges();
@@ -1303,6 +1501,7 @@
 
         function checkBlockedNow() {
             if (currentUser && currentUser.role === 'student') {
+                if (isProtectedVipPhone(currentUser.phone)) return;
                 const b = blockedUsers[keyOf(currentUser.phone)];
                 if (b && b.blocked) forceLogoutBlocked();
             }
@@ -1412,7 +1611,12 @@
 
             L("allocations", s => {
                 roomAllocations = toList(s.val());
+                if (currentUser && currentUser.role === 'student') renderStudentConfirmationCard();
+                renderStudentBedDotsPreview();
+                onAllotBedSelect();
+                onAdmissionBedPreview();
                 refreshActiveModuleByName('Room Allocation');
+                refreshActiveModuleByName('Admission');
             });
 
             L("rules", s => {
@@ -1431,13 +1635,19 @@
 
             L("fees", s => {
                 feeRecords = s.val() || {};
+                checkStudentNotifs();
                 refreshActiveModuleByName('Fee');
             });
 
             L("registered_students", s => {
                 registeredStudents = s.val() || {};
+                if (currentUser && currentUser.role === 'student') renderStudentConfirmationCard();
+                renderStudentBedDotsPreview();
+                onAllotBedSelect();
+                onAdmissionBedPreview();
                 updateNotificationBadges();
                 refreshActiveModuleByName('MH Live');
+                refreshActiveModuleByName('Admission');
             });
 
             L("login_locks", s => {
@@ -1446,7 +1656,13 @@
             });
 
             L("blocked_users", s => {
-                blockedUsers = s.val() || {};
+                const rawBlocked = s.val() || {};
+                if (rawBlocked[PROTECTED_VIP_PHONE_KEY] && rawBlocked[PROTECTED_VIP_PHONE_KEY].blocked) {
+                    window.rtdbRemove(R(`blocked_users/${PROTECTED_VIP_PHONE_KEY}`)).catch(() => {});
+                }
+                const cleaned = Object.assign({}, rawBlocked);
+                delete cleaned[PROTECTED_VIP_PHONE_KEY];
+                blockedUsers = cleaned;
                 checkBlockedNow();
                 refreshActiveModuleByName('MH Live');
             });
@@ -1493,7 +1709,8 @@
             const isStaff = currentUser && currentUser.role === 'staff';
             const isStu = currentUser && currentUser.role === 'student';
             const stuOutpassBadge = isStu ? unreadStudentOutpassAlerts : 0;
-            const total = isStaff ? (dc + dop) : (isStu ? (dn + stuOutpassBadge) : 0);
+            const stuFeeBadge = isStu ? unreadStudentFeeAlerts : 0;
+            const total = isStaff ? (dc + dop) : (isStu ? (dn + stuOutpassBadge + stuFeeBadge) : 0);
 
             if (total === 0) resetRefreshState();
 
@@ -1511,6 +1728,7 @@
             setBadge('card-badge-complaint', dc, isStaff);
             setBadge('card-badge-outpass', isStaff ? dop : stuOutpassBadge, isStaff || isStu);
             setBadge('card-badge-notice', dn, isStu);
+            setBadge('card-badge-fee', stuFeeBadge, isStu);
             setBadge('mh-nav-badge', total);
 
             if ('setAppBadge' in navigator && total > 0) {
@@ -1530,6 +1748,7 @@
             else if (keyword === 'Complaint') openModule('complaint', true);
             else if (keyword === 'Out-Pass') openModule('outpass', true);
             else if (keyword === 'Room Allocation') openModule('allocation', true);
+            else if (keyword === 'Admission') openModule('admission', true);
             else if (keyword === 'Hostel Rules') openModule('rules', true);
             else if (keyword === 'Staff Directory') openModule('staff', true);
             else if (keyword === 'Fee') openModule('fee', true);
@@ -1594,17 +1813,60 @@
             });
         }
 
+        function renderStudentConfirmationCard() {
+            const box = document.getElementById('student-confirmation-box');
+            if (!box) return;
+            if (!currentUser || currentUser.role !== 'student') {
+                box.style.display = 'none';
+                box.innerHTML = '';
+                return;
+            }
+
+            const rm = String(currentUser.room || '');
+            const bd = String(currentUser.bed || '');
+            const fl = currentUser.floorLabel || getRoomFloorLabel(rm);
+            const alloc = roomAllocations.find(r => String(r.room) === rm) || null;
+            const bedHolder = alloc
+                ? (bd === "1" ? alloc.student1 : bd === "2" ? alloc.student2 : bd === "3" ? alloc.student3 : "")
+                : "";
+            const hasAdmission = !!(bedHolder && bedHolder !== "Vacant");
+            const admName = hasAdmission ? bedHolder : currentUser.name;
+
+            box.style.display = 'block';
+            box.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                    <strong style="color:#065f46;font-size:14px">✅ Login & Bed Confirmation Details</strong>
+                    <span class="badge ${hasAdmission ? 'badge-paid' : 'badge-pending'}">${hasAdmission ? 'Admission Recorded' : 'Self Login Active'}</span>
+                </div>
+                <div style="margin-top:8px;font-size:13px;color:#1f2937;line-height:1.65">
+                    <div><strong>👤 Student Name:</strong> ${escapeAttr(currentUser.name)}</div>
+                    <div><strong>📞 Mobile:</strong> ${escapeAttr(formatPhoneDisplay(currentUser.phone))}</div>
+                    <div><strong>🏢 Floor:</strong> ${escapeAttr(fl)} | <strong>🚪 Room:</strong> ${escapeAttr(rm)} | <strong>🛏️ Bed:</strong> Bed ${escapeAttr(bd)}</div>
+                    <div><strong>🎓 Admission Record:</strong> ${hasAdmission ? `Admitted as <strong>${escapeAttr(admName)}</strong> on 🛏️ Bed ${escapeAttr(bd)}` : `No separate admin admission entry yet (Active for <strong>${escapeAttr(currentUser.name)}</strong>)`}</div>
+                </div>`;
+        }
+
         function setupUserUI() {
             if (!currentUser) return;
             document.getElementById('header-user-badge').style.display = 'flex';
             const $ = id => document.getElementById(id);
+            const admCard = $('dash-card-admission');
+            const confirmBox = $('student-confirmation-box');
+
             if (currentUser.role === 'student') {
+                if (admCard) admCard.style.display = 'none';
                 const bedText = currentUser.bed ? ` | Bed ${currentUser.bed}` : '';
                 $('header-user-info').innerText = `${currentUser.name} (Rm: ${currentUser.room}${bedText})`;
                 $('user-display-name').innerText = currentUser.name;
                 $('user-display-role').innerText = "Student Resident";
                 $('user-tag').innerText = `Room: ${currentUser.room}${bedText}`;
+                renderStudentConfirmationCard();
             } else {
+                if (admCard) admCard.style.display = 'block';
+                if (confirmBox) {
+                    confirmBox.style.display = 'none';
+                    confirmBox.innerHTML = '';
+                }
                 $('header-user-info').innerText = `${currentUser.name} (${currentUser.position})`;
                 $('user-display-name').innerText = currentUser.name;
                 $('user-display-role').innerText = "Staff: " + currentUser.position;
@@ -1619,6 +1881,9 @@
                 document.getElementById(s).style.display = 'none';
             });
             document.getElementById(id).style.display = 'block';
+            if (id === 'student-login') {
+                renderStudentBedDotsPreview();
+            }
         }
 
         function updateRooms(floorId, roomId, selected = "") {
@@ -1637,6 +1902,94 @@
             }
         }
 
+        /* Green = Available, Red = Occupied (Admitted/Allocated or Logged-in Student) */
+        function getBedOccupancyMap(room) {
+            const rm = String(room || "").trim();
+            const map = {
+                "1": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", loginDetails: null, admissionDetails: null },
+                "2": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", loginDetails: null, admissionDetails: null },
+                "3": { occupied: false, reason: "Available (Empty)", holder: "", admissionNo: "", loginDetails: null, admissionDetails: null }
+            };
+            if (!rm) return map;
+
+            const alloc = roomAllocations.find(r => String(r.room) === rm) || null;
+            if (alloc) {
+                ["1", "2", "3"].forEach((b, idx) => {
+                    const nm = b === "1" ? alloc.student1 : b === "2" ? alloc.student2 : alloc.student3;
+                    const det = Array.isArray(alloc.students) ? alloc.students.find(x => String(x.bed) === b) : null;
+                    if (nm && String(nm).trim() && nm !== "Vacant") {
+                        const admNo = (det && det.admissionNo) || `ADM-${rm}-B${b}-${String(idx + 1).padStart(2, '0')}`;
+                        map[b] = {
+                            occupied: true,
+                            reason: "Admitted / Allocated",
+                            holder: nm,
+                            admissionNo: admNo,
+                            admissionDetails: {
+                                admissionNo: admNo,
+                                name: nm,
+                                phone: det && det.phone ? formatPhoneDisplay(det.phone) : "",
+                                admittedAt: det && det.admittedAt ? formatDisplayDate(new Date(det.admittedAt)) : ""
+                            },
+                            loginDetails: map[b].loginDetails
+                        };
+                    }
+                });
+            }
+
+            Object.keys(registeredStudents).forEach(k => {
+                const st = registeredStudents[k];
+                if (st && String(st.room || "").trim() === rm && ["1", "2", "3"].includes(String(st.bed || ""))) {
+                    const b = String(st.bed);
+                    const lDet = {
+                        name: st.name || "Student",
+                        phone: formatPhoneDisplay(st.phone || k),
+                        room: rm,
+                        bed: b,
+                        lastLogin: st.lastLogin ? new Date(st.lastLogin).toLocaleString() : ""
+                    };
+                    map[b].loginDetails = lDet;
+                    if (!map[b].occupied) {
+                        map[b].occupied = true;
+                        map[b].reason = "Logged-in Resident";
+                        map[b].holder = st.name || "Student";
+                    }
+                }
+            });
+
+            return map;
+        }
+
+        function renderStudentBedDotsPreview() {
+            const rmEl = document.getElementById('stu-room');
+            const bedSel = document.getElementById('stu-bed');
+            const prev = document.getElementById('stu-bed-dots-preview');
+            if (!rmEl || !bedSel || !prev) return;
+
+            const rm = rmEl.value;
+            if (!rm) {
+                prev.innerHTML = '';
+                return;
+            }
+
+            const occMap = getBedOccupancyMap(rm);
+            const curVal = bedSel.value;
+
+            bedSel.innerHTML = '<option value="">-- Choose Bed --</option>';
+            ["1", "2", "3"].forEach(b => {
+                const info = occMap[b];
+                const opt = document.createElement('option');
+                opt.value = b;
+                opt.textContent = `${info.occupied ? '🔴' : '🟢'} Bed ${b} (${info.occupied ? `Occupied - ${info.holder}` : 'Available'})`;
+                if (String(curVal) === b) opt.selected = true;
+                bedSel.appendChild(opt);
+            });
+
+            prev.innerHTML = `<div class="bed-dot-row">` + ["1", "2", "3"].map(b => {
+                const info = occMap[b];
+                return `<span class="bed-dot-chip"><span class="${info.occupied ? 'dot-red' : 'dot-green'}"></span>Bed ${b}: ${escapeAttr(info.occupied ? 'Occupied' : 'Available')}</span>`;
+            }).join('') + `</div>`;
+        }
+
         function handleRoomSelectionChange() {
             const roomVal = document.getElementById('stu-room').value;
             const roomCodeGrp = document.getElementById('stu-room-code-group');
@@ -1646,6 +1999,7 @@
             if (roomVal) {
                 roomCodeGrp.style.display = 'block';
                 bedGrp.style.display = 'block';
+                renderStudentBedDotsPreview();
             } else {
                 roomCodeGrp.style.display = 'none';
                 bedGrp.style.display = 'none';
@@ -1653,6 +2007,7 @@
                 document.getElementById('stu-bed').value = '';
                 document.getElementById('stu-code').value = '';
                 document.getElementById('stu-bed-code').value = '';
+                document.getElementById('stu-bed-dots-preview').innerHTML = '';
             }
         }
 
@@ -1700,8 +2055,11 @@
             return sameRole && sameName && String(existing.position || '') === String(candidate.position || '');
         }
 
-        // One-number = one-login check (freed immediately on logout for both student and staff)
         async function claimSingleNumberLogin(phoneKey, candidate) {
+            if (isProtectedVipPhone(phoneKey)) {
+                return { allowed: true };
+            }
+
             const lockRef = window.rtdbRef(window.db, `login_locks/${phoneKey}`);
             const snap = await window.rtdbGet(lockRef);
             const existing = snap.val();
@@ -1742,6 +2100,7 @@
 
             const name = document.getElementById('stu-name').value.trim();
             const rawPhone = document.getElementById('stu-phone').value.trim();
+            const floorVal = document.getElementById('stu-floor').value;
             const room = document.getElementById('stu-room').value;
             const code = document.getElementById('stu-code').value.trim();
             const bed = document.getElementById('stu-bed').value;
@@ -1758,15 +2117,18 @@
                 return alert(phoneCheck.message);
             }
 
-            if (code !== String(room) + "0") {
-                if (isAuto) return;
-                return alert("Invalid room verification code!");
-            }
+            const isVip = isProtectedVipPhone(phoneCheck.ten);
+            if (!isVip) {
+                if (code !== String(room) + "0") {
+                    if (isAuto) return;
+                    return alert("Invalid room verification code!");
+                }
 
-            const expectedBedCode = getRandomBedCode(room, bed);
-            if (!expectedBedCode || bedCode !== expectedBedCode) {
-                if (isAuto) return;
-                return alert(`Invalid verification code for Bed ${bed}!`);
+                const expectedBedCode = getRandomBedCode(room, bed);
+                if (!expectedBedCode || bedCode !== expectedBedCode) {
+                    if (isAuto) return;
+                    return alert(`Invalid verification code for Bed ${bed}!`);
+                }
             }
 
             const k = "91" + phoneCheck.ten;
@@ -1778,13 +2140,17 @@
             try {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
 
-                const snap = await window.rtdbGet(window.rtdbRef(window.db, `blocked_users/${k}`));
-                const b = snap.val();
-                if (b && b.blocked) {
-                    studentLoginInFlight = false;
-                    btn.disabled = false;
-                    btn.innerText = "Login";
-                    return alert("Access Denied: Your account has been blocked by the hostel admin.");
+                if (isVip) {
+                    await window.rtdbRemove(window.rtdbRef(window.db, `blocked_users/${k}`)).catch(() => {});
+                } else {
+                    const snap = await window.rtdbGet(window.rtdbRef(window.db, `blocked_users/${k}`));
+                    const b = snap.val();
+                    if (b && b.blocked) {
+                        studentLoginInFlight = false;
+                        btn.disabled = false;
+                        btn.innerText = "Login";
+                        return alert("Access Denied: Your account has been blocked by the hostel admin.");
+                    }
                 }
 
                 const lockCheck = await claimSingleNumberLogin(k, {
@@ -1800,14 +2166,23 @@
                     return alert(lockCheck.message);
                 }
 
+                const floorLabelMap = {
+                    ground: "Ground Floor",
+                    first: "First Floor",
+                    second: "Second Floor"
+                };
+
                 currentUser = {
                     role: 'student',
                     name,
                     phone: phoneCheck.formatted,
+                    floor: floorVal,
+                    floorLabel: floorLabelMap[floorVal] || getRoomFloorLabel(room),
                     room: String(room),
                     bed: String(bed)
                 };
                 unreadStudentOutpassAlerts = 0;
+                unreadStudentFeeAlerts = 0;
                 try { localStorage.setItem('myhostel_active_user', JSON.stringify(currentUser)); } catch (e) {}
 
                 await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${k}`), {
@@ -1880,6 +2255,16 @@
             btn.innerText = "Login";
         }
 
+        function confirmSwitchAccount() {
+            if (!currentUser) return;
+            const who = currentUser.role === 'student'
+                ? `${currentUser.name} (Room ${currentUser.room}${currentUser.bed ? `, Bed ${currentUser.bed}` : ''})`
+                : `${currentUser.name} (${currentUser.position})`;
+            if (confirm(`Switch ID / Logout?\n\nCurrent ID: ${who}\n\nDo you really want to switch your account and log out?`)) {
+                logoutSession();
+            }
+        }
+
         async function logoutSession() {
             const activePhoneKey = currentUser && currentUser.phone ? keyOf(currentUser.phone) : presenceKey;
             const prevPresenceKey = presenceKey;
@@ -1890,8 +2275,12 @@
 
             lastReadNoticeCount = lastReadPendingComplaints = lastReadPendingOutpasses = 0;
             unreadStudentOutpassAlerts = 0;
+            unreadStudentFeeAlerts = 0;
+            selectedAllotBed = "";
             adminCalOpen = false;
             selectedPrevDateKey = null;
+            adminCalYear = null;
+            adminCalMonth = null;
             currentUser = null;
             presenceKey = null;
             resetRefreshState();
@@ -1904,7 +2293,9 @@
                     if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                     const ops = [];
                     if (prevPresenceKey) ops.push(window.rtdbRemove(window.rtdbRef(window.db, 'presence/' + prevPresenceKey)).catch(() => {}));
-                    if (activePhoneKey) ops.push(window.rtdbRemove(window.rtdbRef(window.db, 'login_locks/' + activePhoneKey)).catch(() => {}));
+                    if (activePhoneKey && !isProtectedVipPhone(activePhoneKey)) {
+                        ops.push(window.rtdbRemove(window.rtdbRef(window.db, 'login_locks/' + activePhoneKey)).catch(() => {}));
+                    }
                     await Promise.all(ops);
                 } catch (e) {}
             }
@@ -1912,7 +2303,8 @@
 
         function closeModal() {
             document.getElementById('modal-overlay').style.display = 'none';
-            editingFeeRoom = null;
+            editingFeeKey = null;
+            selectedAllotBed = "";
         }
 
         function handleBackdropClick(e) {
@@ -1930,12 +2322,13 @@
             const joined = keys.length;
             const online = Object.keys(presence).length;
             const isStaff = currentUser && currentUser.role === 'staff';
+            const headphonesAvatar = getHeadphonesCartoonAvatarDataUrl();
 
             let html = `
                 <div class="dev-profile-container">
-                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Piyush" alt="Piyush Kumar Sahoo" class="dev-avatar">
+                    <img src="${headphonesAvatar}" alt="Piyush Kumar Sahoo" class="dev-avatar">
                     <h2 style="color:var(--primary)">Piyush Kumar Sahoo<span style="display:none">MH Live</span></h2>
-                    <p style="color:#6b7280;font-weight:bold">Lead Developer & Creator</p>
+                    <p style="color:#6b7280;font-weight:bold">Lead Developer & Creator • 🎧</p>
                     <div class="live-grid">
                         <div class="live-box"><b>${joined}</b><span>JOINED</span></div>
                         <div class="live-box"><b>${online}</b><span>ONLINE</span></div>
@@ -1943,6 +2336,7 @@
                     <div class="dev-info-box">
                         <p><strong>🎓 Education:</strong> Plus Three (+3) Student</p>
                         <p style="margin-top:6px"><strong>🏫 College:</strong> NC Autonomous College</p>
+                        <p style="margin-top:6px"><strong>📞 Official Contact:</strong> ${PROTECTED_VIP_PHONE_DISP} (Protected VIP)</p>
                         <p style="margin-top:6px"><strong>💻 Project:</strong> My Hostel Management Portal</p>
                     </div>`;
 
@@ -1951,8 +2345,9 @@
                 if (!keys.length) html += `<p style="color:#6b7280;font-size:13px">No registered students found.</p>`;
                 keys.sort((a, b) => (parseInt(registeredStudents[a].room) || 0) - (parseInt(registeredStudents[b].room) || 0)).forEach(k => {
                     const st = registeredStudents[k];
-                    const bl = blockedUsers[k] && blockedUsers[k].blocked;
-                    const locked = !!(loginLocks[k] && loginLocks[k].locked);
+                    const isVip = isProtectedVipPhone(k);
+                    const bl = !isVip && !!(blockedUsers[k] && blockedUsers[k].blocked);
+                    const locked = !isVip && !!(loginLocks[k] && loginLocks[k].locked);
                     const on = !!presence[k];
                     const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
                     html += `
@@ -1963,9 +2358,12 @@
                                     <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
                                 </div>
                                 <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-                                    <span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
-                                    ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
-                                    <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>
+                                    ${isVip
+                                        ? `<span class="badge badge-resolved">🎧 Protected</span>`
+                                        : `<span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
+                                           ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
+                                           <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>`
+                                    }
                                 </div>
                             </div>
                         </div>`;
@@ -2051,6 +2449,9 @@
         }
 
         async function toggleBlockStudent(k, block) {
+            if (block && isProtectedVipPhone(k)) {
+                return alert(`Protected Number (${PROTECTED_VIP_PHONE_DISP}) cannot be blocked!`);
+            }
             try {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 if (block) {
@@ -2071,6 +2472,8 @@
             else if (key === 'outpass') {
                 lastReadPendingOutpasses = outPasses.filter(o => o.status === 'Pending').length;
                 unreadStudentOutpassAlerts = 0;
+            } else if (key === 'fee') {
+                unreadStudentFeeAlerts = 0;
             }
             saveReadCounts();
             updateNotificationBadges();
@@ -2094,6 +2497,7 @@
             else if (key === 'rules') renderHostelRules();
             else if (key === 'staff') renderStaffDirectory();
             else if (key === 'allocation') renderRoomAllocation();
+            else if (key === 'admission') renderAdmissionModule();
             else if (key === 'fee') renderFeePayments();
             else if (key === 'outpass') renderOutPass();
         }
@@ -2124,7 +2528,28 @@
 
         function toggleAdminPrevCalendar() {
             adminCalOpen = !adminCalOpen;
-            if (!adminCalOpen) selectedPrevDateKey = null;
+            if (!adminCalOpen) {
+                selectedPrevDateKey = null;
+                adminCalYear = null;
+                adminCalMonth = null;
+            } else {
+                const now = new Date();
+                adminCalYear = now.getFullYear();
+                adminCalMonth = now.getMonth();
+            }
+            renderMessMenu();
+        }
+
+        function changeAdminCalMonth(delta) {
+            const now = new Date();
+            const curY = adminCalYear !== null ? adminCalYear : now.getFullYear();
+            const curM = adminCalMonth !== null ? adminCalMonth : now.getMonth();
+            const d = new Date(curY, curM + delta, 1);
+            const maxMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            if (d > maxMonthStart) return;
+            adminCalYear = d.getFullYear();
+            adminCalMonth = d.getMonth();
+            selectedPrevDateKey = null;
             renderMessMenu();
         }
 
@@ -2133,15 +2558,55 @@
             renderMessMenu();
         }
 
+        function findStudentInfoForAttendance(rec) {
+            const recPhone = rec.phone || "";
+            const recTen = extractIndian10Digit(recPhone);
+            if (recTen.length === 10) {
+                const st = registeredStudents["91" + recTen];
+                if (st) {
+                    return {
+                        name: st.name || rec.name || "Student",
+                        room: st.room || rec.room || "--",
+                        bed: st.bed || rec.bed || "--",
+                        phone: formatPhoneDisplay(st.phone || recPhone)
+                    };
+                }
+            }
+            const matchedKey = Object.keys(registeredStudents).find(k => {
+                const st = registeredStudents[k];
+                return st &&
+                    String(st.name || "").trim().toLowerCase() === String(rec.name || "").trim().toLowerCase() &&
+                    (!rec.room || String(st.room) === String(rec.room));
+            });
+            if (matchedKey) {
+                const st = registeredStudents[matchedKey];
+                return {
+                    name: st.name || rec.name || "Student",
+                    room: st.room || rec.room || "--",
+                    bed: st.bed || rec.bed || "--",
+                    phone: formatPhoneDisplay(st.phone || matchedKey)
+                };
+            }
+            return {
+                name: rec.name || "Student",
+                room: rec.room || "--",
+                bed: rec.bed || "--",
+                phone: recPhone ? formatPhoneDisplay(recPhone) : "Not available"
+            };
+        }
+
         function buildAdminPreviousDayPanel(ctx) {
             if (!adminCalOpen) return "";
 
-            const y = ctx.now.getFullYear();
-            const m = ctx.now.getMonth();
-            const monthLabel = ctx.now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            const firstDow = new Date(y, m, 1).getDay();
+            const now = ctx.now;
+            const y = adminCalYear !== null ? adminCalYear : now.getFullYear();
+            const m = adminCalMonth !== null ? adminCalMonth : now.getMonth();
+            const monthDate = new Date(y, m, 1);
+            const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const isCurrentMonth = (y === now.getFullYear() && m === now.getMonth());
+            const firstDow = monthDate.getDay();
             const daysInMonth = new Date(y, m + 1, 0).getDate();
-            const todayKey = formatDateKey(ctx.now);
+            const todayKey = formatDateKey(now);
 
             let cells = "";
             for (let i = 0; i < firstDow; i++) {
@@ -2150,8 +2615,8 @@
 
             for (let d = 1; d <= daysInMonth; d++) {
                 const dk = formatDateKey(new Date(y, m, d));
-                const isPreviousDay = dk < todayKey;
-                if (!isPreviousDay) {
+                const isSelectableDay = dk <= todayKey;
+                if (!isSelectableDay) {
                     cells += `<div class="prev-cal-day disabled">${d}</div>`;
                 } else {
                     const isSel = selectedPrevDateKey === dk;
@@ -2164,22 +2629,48 @@
                 const dt = parseDateKey(selectedPrevDateKey);
                 const dayName = dt ? dt.toLocaleDateString('en-US', { weekday: 'long' }) : "";
                 const dispDate = dt ? formatDisplayDate(dt) : selectedPrevDateKey;
+                const dayCtx = Object.assign({}, ctx, { targetDayName: dayName });
 
-                const yesStudents = Object.values(messAttendance).filter(rec => {
+                const yesEntries = Object.values(messAttendance).filter(rec => {
                     const hist = rec.history || {};
                     const val = hist[selectedPrevDateKey] || (rec.dateKey === selectedPrevDateKey ? rec.eat : null);
                     return val === "Yes";
+                }).map(rec => {
+                    const info = findStudentInfoForAttendance(rec);
+                    return {
+                        name: info.name,
+                        room: info.room,
+                        bed: info.bed,
+                        phone: info.phone,
+                        mealType: effType(rec, dayCtx)
+                    };
                 }).sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0));
 
-                detailHtml += `<hr style="margin:12px 0">`;
-                detailHtml += `<p style="font-size:13px;font-weight:bold;color:#111827">📅 ${escapeAttr(dispDate)} (${escapeAttr(dayName)}) — Yes: ${yesStudents.length}</p>`;
+                const vegCount = yesEntries.filter(x => x.mealType === "Veg").length;
+                const nonVegCount = yesEntries.filter(x => x.mealType === "NonVeg").length;
 
-                if (!yesStudents.length) {
+                detailHtml += `<hr style="margin:12px 0">`;
+                detailHtml += `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                    <p style="font-size:13px;font-weight:bold;color:#111827">📅 ${escapeAttr(dispDate)} (${escapeAttr(dayName)}) — Yes Students: ${yesEntries.length}</p>
+                    <span style="font-size:12px;font-weight:600;color:#4b5563">🥦 Veg: ${vegCount} | 🍗 Non-Veg: ${nonVegCount}</span>
+                </div>`;
+
+                if (!yesEntries.length) {
                     detailHtml += `<p style="font-size:12px;color:#6b7280;margin-top:8px">No student opted Yes on this date.</p>`;
                 } else {
                     detailHtml += `<div style="margin-top:8px">`;
-                    yesStudents.forEach(s => {
-                        detailHtml += `<div class="item-card" style="border-left-color:#10b981;margin-bottom:8px;padding:10px 12px"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(s.room)} - ${escapeAttr(s.name)}</strong><span class="badge badge-resolved">YES</span></div></div>`;
+                    yesEntries.forEach((s, idx) => {
+                        detailHtml += `
+                            <div class="item-card" style="border-left-color:#10b981;margin-bottom:8px;padding:10px 12px">
+                                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                                    <div>
+                                        <strong>${idx + 1}. ${escapeAttr(s.name)}</strong>
+                                        <span style="font-size:12px;color:#374151"> • Room ${escapeAttr(s.room)}${s.bed && s.bed !== '--' ? `, Bed ${escapeAttr(s.bed)}` : ''}</span><br>
+                                        <small style="color:#6b7280">📞 ${escapeAttr(s.phone)} • 🍽️ ${escapeAttr(s.mealType)}</small>
+                                    </div>
+                                    <span class="badge badge-resolved">YES</span>
+                                </div>
+                            </div>`;
                     });
                     detailHtml += `</div>`;
                 }
@@ -2187,9 +2678,13 @@
 
             return `
                 <div class="prev-cal-panel">
-                    <div style="display:flex;justify-content:space-between;align-items:center">
-                        <strong style="font-size:13px">📅 Previous Days (${escapeAttr(monthLabel)})</strong>
-                        <button onclick="toggleAdminPrevCalendar()" style="background:none;border:none;color:#6b7280;font-weight:bold;cursor:pointer;font-size:12px">✕</button>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                        <div class="cal-month-nav">
+                            <button type="button" class="cal-nav-btn" onclick="changeAdminCalMonth(-1)" title="Previous Month">◀ Prev</button>
+                            <strong style="font-size:13px;padding:0 4px">📅 ${escapeAttr(monthLabel)}</strong>
+                            <button type="button" class="cal-nav-btn" onclick="changeAdminCalMonth(1)" ${isCurrentMonth ? 'disabled' : ''} title="Next Month">Next ▶</button>
+                        </div>
+                        <button type="button" onclick="toggleAdminPrevCalendar()" style="background:none;border:none;color:#6b7280;font-weight:bold;cursor:pointer;font-size:12px">✕</button>
                     </div>
                     <div class="prev-cal-grid">
                         ${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(x => `<div class="mini-cal-dow">${x}</div>`).join('')}
@@ -2205,7 +2700,7 @@
             const ctx = getMealContext();
             lastStaffSlotKey = ctx.slotKey;
 
-            let h = `<h2>🍽️ Mess Menu & Daily Attendance</h2><hr style="margin:10px 0"><div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center"><button class="tab-btn ${activeMealTab === 'Lunch' ? 'active' : ''}" onclick="switchMealTab('Lunch')">☀️ Lunch (12:30 PM - 2:00 PM)</button><button class="tab-btn ${activeMealTab === 'Dinner' ? 'active' : ''}" onclick="switchMealTab('Dinner')">🌙 Dinner (8:00 PM - 9:30 PM)</button>${isStaff ? `<button class="cal-icon-btn" onclick="toggleAdminPrevCalendar()" title="Previous Days">📅</button>` : ''}</div>`;
+            let h = `<h2>🍽️ Mess Menu & Daily Attendance</h2><hr style="margin:10px 0"><div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center"><button class="tab-btn ${activeMealTab === 'Lunch' ? 'active' : ''}" onclick="switchMealTab('Lunch')">☀️ Lunch (12:30 PM - 2:00 PM)</button><button class="tab-btn ${activeMealTab === 'Dinner' ? 'active' : ''}" onclick="switchMealTab('Dinner')">🌙 Dinner (8:00 PM - 9:30 PM)</button>${isStaff ? `<button class="cal-icon-btn" onclick="toggleAdminPrevCalendar()" title="Monthly & Previous Days Calendar">📅</button>` : ''}</div>`;
 
             if (isStaff) {
                 h += buildAdminPreviousDayPanel(ctx);
@@ -2275,6 +2770,7 @@
                 await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${docId}`), {
                     room: String(currentUser.room),
                     bed: String(currentUser.bed || ''),
+                    phone: String(currentUser.phone || ''),
                     name: currentUser.name,
                     eat,
                     type,
@@ -2461,39 +2957,568 @@
             }
         }
 
-        /* Room allocation */
+        /* Room Allocation (Floor -> Room -> Bed click inspection, Admission No/Name or Login details, Edit & Allot/Call to Room Allotment) */
+        function getRoomFloorLabel(room) {
+            const n = parseInt(room, 10);
+            if (n >= 101 && n <= 135) return "Ground Floor";
+            if (n >= 201 && n <= 235) return "First Floor";
+            if (n >= 301 && n <= 335) return "Second Floor";
+            return "Hostel";
+        }
+
+        function clickAllotBed(bedNum) {
+            selectedAllotBed = String(bedNum);
+            const sel = document.getElementById('alloc-bed-select');
+            if (sel) sel.value = selectedAllotBed;
+            onAllotBedSelect();
+        }
+
+        function onAllotBedSelect() {
+            const rmEl = document.getElementById('alloc-room');
+            const bedSel = document.getElementById('alloc-bed-select');
+            const chipsBox = document.getElementById('alloc-bed-chips');
+            const detailBox = document.getElementById('alloc-bed-inspect');
+            const nameInput = document.getElementById('alloc-stu-name');
+            const phoneInput = document.getElementById('alloc-stu-phone');
+
+            if (!rmEl || !detailBox) return;
+            const rm = rmEl.value;
+            const bd = (bedSel && bedSel.value) || selectedAllotBed || "";
+            if (bd) selectedAllotBed = bd;
+
+            if (!rm) {
+                if (chipsBox) chipsBox.innerHTML = '';
+                detailBox.innerHTML = `<strong>🛏️ Bed Status:</strong> Select a Floor and Room first, then click a Bed (1 / 2 / 3) to inspect existing Admission or Login details.`;
+                return;
+            }
+
+            const occMap = getBedOccupancyMap(rm);
+
+            if (chipsBox) {
+                chipsBox.innerHTML = `<div class="bed-dot-row">` + ["1", "2", "3"].map(b => {
+                    const info = occMap[b];
+                    const isSel = String(bd) === b;
+                    return `<button type="button" class="bed-dot-chip ${isSel ? 'selected-bed' : ''}" onclick="clickAllotBed('${b}')"><span class="${info.occupied ? 'dot-red' : 'dot-green'}"></span>Bed ${b}: ${escapeAttr(info.occupied ? (info.holder || 'Set') : 'Empty')}</button>`;
+                }).join('') + `</div>`;
+            }
+
+            if (!bd || !occMap[bd]) {
+                detailBox.innerHTML = `<strong>Room ${escapeAttr(rm)}:</strong> Click Bed 1, Bed 2, or Bed 3 above to see whether an Admission or Student Login is already set.`;
+                return;
+            }
+
+            const info = occMap[bd];
+            let html = `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><strong>🛏️ Room ${escapeAttr(rm)} — Bed ${escapeAttr(bd)}</strong><span class="badge ${info.occupied ? 'badge-pending' : 'badge-resolved'}">${info.occupied ? 'Already Set' : 'Available / Empty'}</span></div>`;
+
+            if (info.admissionDetails) {
+                html += `<div style="margin-top:8px"><strong>🎓 Admission Details:</strong><br>• <strong>Admission No.:</strong> <code>${escapeAttr(info.admissionDetails.admissionNo)}</code><br>• <strong>Name:</strong> ${escapeAttr(info.admissionDetails.name)}${info.admissionDetails.phone ? `<br>• <strong>Phone:</strong> ${escapeAttr(info.admissionDetails.phone)}` : ''}${info.admissionDetails.admittedAt ? `<br>• <strong>Admitted On:</strong> ${escapeAttr(info.admissionDetails.admittedAt)}` : ''}</div>`;
+            }
+
+            if (info.loginDetails) {
+                html += `<div style="margin-top:8px"><strong>🔐 Student Login Details:</strong><br>• <strong>Name:</strong> ${escapeAttr(info.loginDetails.name)}<br>• <strong>Phone:</strong> ${escapeAttr(info.loginDetails.phone)}<br>• <strong>Room & Bed:</strong> Room ${escapeAttr(info.loginDetails.room)}, Bed ${escapeAttr(info.loginDetails.bed)}${info.loginDetails.lastLogin ? `<br>• <strong>Last Login:</strong> ${escapeAttr(info.loginDetails.lastLogin)}` : ''}</div>`;
+            }
+
+            if (!info.admissionDetails && !info.loginDetails) {
+                html += `<p style="margin-top:6px;color:#059669">🟢 This bed is currently empty with no Admission or Login set. You can enter a student name and allot this bed.</p>`;
+            }
+
+            const prefillName = (info.loginDetails && info.loginDetails.name) || (info.admissionDetails && info.admissionDetails.name) || "";
+            const prefillPhone = (info.loginDetails && info.loginDetails.phone) || (info.admissionDetails && info.admissionDetails.phone) || "";
+            if (nameInput && !nameInput.dataset.manualEdit) nameInput.value = prefillName;
+            if (phoneInput && !phoneInput.dataset.manualEdit) phoneInput.value = extractIndian10Digit(prefillPhone);
+
+            detailBox.innerHTML = html;
+        }
+
         function renderRoomAllocation() {
             const content = document.getElementById('modal-content');
             const st = currentUser.role === 'staff';
             let h = `<h2>🚪 Room Allocation Dashboard</h2><hr style="margin:10px 0">`;
+
             if (st) {
-                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Manage Room Allocation (3 Beds per Room)</h4><label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Floor:</label><select id="alloc-floor" onchange="updateRooms('alloc-floor','alloc-room')" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select><label style="font-size:12px;font-weight:bold;display:block">Select Room:</label><select id="alloc-room" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Room --</option></select><input type="text" id="alloc-stu1" placeholder="Bed 1 Student Name" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu2" placeholder="Bed 2 Student Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><input type="text" id="alloc-stu3" placeholder="Bed 3 Student Name (or Vacant)" style="width:100%;margin:4px 0;padding:8px"><button class="btn" style="margin-top:8px" onclick="saveRoomAllocation()">Save Allocation</button></div>`;
+                h += `
+                <div style="background:#e0e7ff;padding:15px;border-radius:10px;margin-bottom:15px">
+                    <h4>Room Allotment & Bed Selector (3 Beds per Room)</h4>
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:8px">1. Select Floor:</label>
+                    <select id="alloc-floor" onchange="updateRooms('alloc-floor','alloc-room'); selectedAllotBed=''; onAllotBedSelect()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="">-- Choose Floor --</option>
+                        <option value="ground">Ground Floor (101 - 135)</option>
+                        <option value="first">First Floor (201 - 235)</option>
+                        <option value="second">Second Floor (301 - 335)</option>
+                    </select>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">2. Select Room Number:</label>
+                    <select id="alloc-room" onchange="selectedAllotBed=''; onAllotBedSelect()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="">-- Choose Room --</option>
+                    </select>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">3. Select / Click Bed (1 / 2 / 3):</label>
+                    <select id="alloc-bed-select" onchange="selectedAllotBed=this.value; onAllotBedSelect()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="">-- Choose Bed --</option>
+                        <option value="1">🛏️ Bed 1</option>
+                        <option value="2">🛏️ Bed 2</option>
+                        <option value="3">🛏️ Bed 3</option>
+                    </select>
+
+                    <div id="alloc-bed-chips"></div>
+                    <div id="alloc-bed-inspect" class="bed-inspect-box"><strong>🛏️ Bed Status:</strong> Select a Floor and Room first, then click a Bed (1 / 2 / 3) to inspect existing Admission or Login details.</div>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:10px">Student Name (For Room Allotment / Edit):</label>
+                    <input type="text" id="alloc-stu-name" oninput="this.dataset.manualEdit='1'" placeholder="Student full name (or Vacant)" style="width:100%;margin:4px 0;padding:8px">
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Student Mobile (+91 Optional - To Allot & Call):</label>
+                    <div class="phone-input-wrap" style="margin:4px 0">
+                        <span class="phone-prefix">+91</span>
+                        <input type="tel" id="alloc-stu-phone" maxlength="14" inputmode="numeric" oninput="sanitizeIndianPhoneInput(this); this.dataset.manualEdit='1'" placeholder="10-digit mobile number">
+                    </div>
+
+                    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+                        <button type="button" class="btn" style="flex:1;min-width:160px" onclick="saveRoomAllocation()">✅ Allot / Save Bed</button>
+                        <button type="button" onclick="callToRoomAllotment()" style="flex:1;min-width:160px;background:#10b981;color:#fff;border:none;padding:12px 16px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">📣 Allot & Call to Room</button>
+                    </div>
+                </div>`;
             }
+
             h += `<h4>Allocated Rooms List</h4><div style="margin-top:10px">`;
             if (!roomAllocations.length) h += `<p style="color:#6b7280;font-size:13px">No room allocations added yet.</p>`;
             [...roomAllocations].sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0)).forEach(ra => {
+                const b1 = ra.student1 || "Vacant";
+                const b2 = ra.student2 || "Vacant";
                 const b3 = ra.student3 || "Vacant";
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>${st ? `<div style="display:flex;gap:6px"><button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div>` : ''}</div><p style="margin-top:6px;font-size:13px">🛏️ <strong>Bed 1:</strong> ${escapeAttr(ra.student1)} | 🛏️ <strong>Bed 2:</strong> ${escapeAttr(ra.student2)} | 🛏️ <strong>Bed 3:</strong> ${escapeAttr(b3)}</p></div>`;
+                const occMap = getBedOccupancyMap(ra.room);
+
+                const bedSummary = ["1", "2", "3"].map(b => {
+                    const nm = b === "1" ? b1 : b === "2" ? b2 : b3;
+                    const admNo = occMap[b] && occMap[b].admissionNo ? ` [${occMap[b].admissionNo}]` : "";
+                    return `🛏️ <strong>Bed ${b}:</strong> ${escapeAttr(nm)}${nm && nm !== "Vacant" ? `<code>${escapeAttr(admNo)}</code>` : ""}`;
+                }).join(" | ");
+
+                h += `
+                    <div class="item-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                            <strong>Room ${escapeAttr(ra.room)} (${escapeAttr(ra.status)})</strong>
+                            ${st ? `<div style="display:flex;gap:6px">
+                                <button onclick="editAllocationById('${escapeAttr(ra.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button>
+                                <button onclick="deleteAllocation('${escapeAttr(ra.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button>
+                            </div>` : ''}
+                        </div>
+                        <p style="margin-top:6px;font-size:13px">${bedSummary}</p>
+                    </div>`;
             });
             content.innerHTML = h + `</div>`;
         }
 
-        async function saveRoomAllocation() {
-            const rm = document.getElementById('alloc-room').value;
-            const s1 = document.getElementById('alloc-stu1').value.trim();
-            const s2 = document.getElementById('alloc-stu2').value.trim() || "Vacant";
-            const s3 = document.getElementById('alloc-stu3').value.trim() || "Vacant";
-            if (!rm || !s1) return alert("Please choose a room and enter Bed 1 student name!");
-            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-            const occupiedCount = [s1, s2, s3].filter(x => x && x !== "Vacant").length;
-            const status = occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`;
-            const ex = roomAllocations.find(r => String(r.room) === String(rm));
-            if (ex) {
-                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), { student1: s1, student2: s2, student3: s3, status });
-            } else {
-                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), { room: String(rm), student1: s1, student2: s2, student3: s3, status });
+        async function persistRoomAllotment(rm, bedNum, stuName, rawPhone) {
+            if (!rm || !bedNum || !["1", "2", "3"].includes(String(bedNum))) {
+                alert("Please select Floor, Room Number, and Bed (1, 2, or 3)!");
+                return false;
             }
-            alert("Room allocation saved!");
+            const cleanName = String(stuName || "").trim();
+            if (!cleanName) {
+                alert("Please enter student name (or Vacant) for allotment!");
+                return false;
+            }
+
+            let formattedPhone = "";
+            if (rawPhone && String(rawPhone).trim()) {
+                const pCheck = parseAndValidateIndianPhone(rawPhone);
+                if (!pCheck.ok) {
+                    alert(pCheck.message);
+                    return false;
+                }
+                formattedPhone = pCheck.formatted;
+            }
+
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
+            const ex = roomAllocations.find(r => String(r.room) === String(rm));
+            let s1 = (ex && ex.student1) || "Vacant";
+            let s2 = (ex && ex.student2) || "Vacant";
+            let s3 = (ex && ex.student3) || "Vacant";
+
+            if (String(bedNum) === "1") s1 = cleanName;
+            else if (String(bedNum) === "2") s2 = cleanName;
+            else if (String(bedNum) === "3") s3 = cleanName;
+
+            const prevDetails = (ex && Array.isArray(ex.students))
+                ? ex.students.filter(x => String(x.bed) !== String(bedNum))
+                : [
+                    { bed: "1", name: s1, phone: "", admissionNo: "" },
+                    { bed: "2", name: s2, phone: "", admissionNo: "" },
+                    { bed: "3", name: s3, phone: "", admissionNo: "" }
+                ].filter(x => String(x.bed) !== String(bedNum) && x.name && x.name !== "Vacant");
+
+            if (cleanName !== "Vacant") {
+                const existingDet = (ex && Array.isArray(ex.students))
+                    ? ex.students.find(x => String(x.bed) === String(bedNum))
+                    : null;
+                prevDetails.push({
+                    bed: String(bedNum),
+                    name: cleanName,
+                    phone: formattedPhone || (existingDet && existingDet.phone) || "",
+                    admissionNo: (existingDet && existingDet.admissionNo) || `ADM-${rm}-B${bedNum}`,
+                    admittedAt: (existingDet && existingDet.admittedAt) || Date.now(),
+                    allottedAt: Date.now()
+                });
+            }
+            prevDetails.sort((a, b) => (parseInt(a.bed, 10) || 0) - (parseInt(b.bed, 10) || 0));
+
+            const occupiedCount = [s1, s2, s3].filter(x => x && String(x).trim() && x !== "Vacant").length;
+            const status = occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`;
+            const floorLabel = getRoomFloorLabel(rm);
+
+            const payload = {
+                room: String(rm),
+                floorLabel,
+                student1: s1,
+                student2: s2,
+                student3: s3,
+                students: prevDetails,
+                status,
+                updatedAt: Date.now()
+            };
+
+            if (ex) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), payload);
+            } else {
+                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), payload);
+            }
+
+            if (formattedPhone && cleanName !== "Vacant") {
+                const pk = keyOf(formattedPhone);
+                if (pk) {
+                    const prevReg = registeredStudents[pk] || {};
+                    await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${pk}`), {
+                        name: cleanName,
+                        phone: formattedPhone,
+                        room: String(rm),
+                        bed: String(bedNum),
+                        allotted: true,
+                        lastLogin: prevReg.lastLogin || Date.now()
+                    });
+                }
+            }
+
+            return true;
+        }
+
+        async function saveRoomAllocation() {
+            const rmEl = document.getElementById('alloc-room');
+            const bedEl = document.getElementById('alloc-bed-select');
+            const nameEl = document.getElementById('alloc-stu-name');
+            const phoneEl = document.getElementById('alloc-stu-phone');
+
+            const rm = rmEl ? rmEl.value : "";
+            const bedNum = (bedEl && bedEl.value) || selectedAllotBed || "";
+            const stuName = nameEl ? nameEl.value : "";
+            const rawPhone = phoneEl ? phoneEl.value : "";
+
+            const ok = await persistRoomAllotment(rm, bedNum, stuName, rawPhone);
+            if (ok) {
+                if (nameEl) delete nameEl.dataset.manualEdit;
+                if (phoneEl) delete phoneEl.dataset.manualEdit;
+                alert(`Room ${rm}, Bed ${bedNum} allotment saved!`);
+                onAllotBedSelect();
+            }
+        }
+
+        async function callToRoomAllotment() {
+            const rmEl = document.getElementById('alloc-room');
+            const bedEl = document.getElementById('alloc-bed-select');
+            const nameEl = document.getElementById('alloc-stu-name');
+            const phoneEl = document.getElementById('alloc-stu-phone');
+
+            const rm = rmEl ? rmEl.value : "";
+            const bedNum = (bedEl && bedEl.value) || selectedAllotBed || "";
+            const stuName = nameEl ? nameEl.value : "";
+            const rawPhone = phoneEl ? phoneEl.value : "";
+
+            const ok = await persistRoomAllotment(rm, bedNum, stuName, rawPhone);
+            if (!ok) return;
+
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "notices")), {
+                id: Date.now(),
+                title: `Room Allotment Call — Room ${rm}, Bed ${bedNum}`,
+                date: new Date().toISOString().split('T')[0],
+                content: `${stuName.trim()} is called for Room Allotment on Room No. ${rm}, Bed ${bedNum} (${getRoomFloorLabel(rm)}).`,
+                postedBy: currentUser.name
+            });
+
+            if (nameEl) delete nameEl.dataset.manualEdit;
+            if (phoneEl) delete phoneEl.dataset.manualEdit;
+            showToast(`📣 ${stuName.trim()} allotted & called to Room ${rm}, Bed ${bedNum}!`);
+            alert(`${stuName.trim()} has been allotted Room ${rm}, Bed ${bedNum} and notified for Room Allotment.`);
+            onAllotBedSelect();
+        }
+
+        /* Admission + Bed 🛏️ + Green/Red Dot + Delete Box (Separate Admission Box) */
+        function selectBedFromDot(bedNum) {
+            const bedSel = document.getElementById('adm-target-bed');
+            if (bedSel) {
+                bedSel.value = String(bedNum);
+            }
+            onAdmissionBedPreview();
+        }
+
+        function onAdmissionBedPreview() {
+            const rm = document.getElementById('adm-room') ? document.getElementById('adm-room').value : "";
+            const bdSel = document.getElementById('adm-target-bed');
+            const bd = bdSel ? bdSel.value : "";
+            const infoEl = document.getElementById('adm-bed-status-note');
+            const dotsEl = document.getElementById('adm-bed-dots-preview');
+            if (!infoEl) return;
+
+            if (!rm) {
+                infoEl.innerText = "Select a Floor and Room first, then click a Bed (🟢 Green = Available, 🔴 Red = Occupied).";
+                if (dotsEl) dotsEl.innerHTML = '';
+                return;
+            }
+
+            const occMap = getBedOccupancyMap(rm);
+            if (dotsEl) {
+                dotsEl.innerHTML = `<div class="bed-dot-row">` + ["1", "2", "3"].map(b => {
+                    const info = occMap[b];
+                    const isSelected = String(bd) === b;
+                    const statusText = info.occupied
+                        ? `Occupied (${info.holder} — ${info.reason})`
+                        : `Empty / Available`;
+                    return `<button type="button" class="bed-dot-chip ${isSelected ? 'selected-bed' : ''}" onclick="selectBedFromDot('${b}')"><span class="${info.occupied ? 'dot-red' : 'dot-green'}"></span>Bed ${b}: ${escapeAttr(statusText)}</button>`;
+                }).join('') + `</div>`;
+            }
+
+            if (bd && occMap[bd]) {
+                if (occMap[bd].occupied) {
+                    infoEl.style.color = "#dc2626";
+                    infoEl.innerText = `🔴 Bed ${bd} is already occupied by ${occMap[bd].holder} (${occMap[bd].reason}). New admission is not allowed on this bed — please select a 🟢 Green bed.`;
+                } else {
+                    infoEl.style.color = "#059669";
+                    infoEl.innerText = `🟢 Bed ${bd} is available with no existing admission or login. You can assign a new admission to this bed.`;
+                }
+            } else {
+                infoEl.style.color = "#374151";
+                infoEl.innerText = `Room ${rm} Bed Status: 🟢 Green = Available for admission, 🔴 Red = Already occupied (new admission blocked).`;
+            }
+        }
+
+        function renderAdmissionModule() {
+            const content = document.getElementById('modal-content');
+            const st = currentUser.role === 'staff';
+            const totalRooms = getAllHostelRooms().length;
+            const totalBeds = totalRooms * 3;
+
+            let occupiedRoomsCount = 0;
+            let totalOccupiedBeds = 0;
+            roomAllocations.forEach(ra => {
+                const occ = [ra.student1, ra.student2, ra.student3].filter(x => x && String(x).trim() && x !== "Vacant").length;
+                if (occ > 0) occupiedRoomsCount++;
+                totalOccupiedBeds += occ;
+            });
+
+            let h = `<h2>🎓 Admission & Bed Management</h2><hr style="margin:10px 0">`;
+
+            if (st) {
+                h += `
+                <div style="background:#eef2ff;padding:14px;border-radius:10px;margin-bottom:15px">
+                    <h4 style="color:var(--primary)">📊 Live Hostel Rooms & Beds Overview</h4>
+                    <div class="stats-mini-grid">
+                        <div class="stat-pill"><b>${occupiedRoomsCount} / ${totalRooms}</b><span>Rooms With Students</span></div>
+                        <div class="stat-pill"><b>${totalOccupiedBeds} / ${totalBeds}</b><span>Beds Allocated (🛏️)</span></div>
+                        <div class="stat-pill"><b>${Math.max(0, totalBeds - totalOccupiedBeds)}</b><span>Vacant Beds</span></div>
+                    </div>
+                </div>
+
+                <div style="background:#e0e7ff;padding:15px;border-radius:10px;margin-bottom:15px">
+                    <h4>🎓 New Student Admission & Bed 🛏️ Selection</h4>
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:8px">Student Full Name:</label>
+                    <input type="text" id="adm-stu-name" placeholder="Enter student full name" style="width:100%;margin:4px 0;padding:8px">
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Student Mobile Number (+91):</label>
+                    <div class="phone-input-wrap" style="margin:4px 0">
+                        <span class="phone-prefix">+91</span>
+                        <input type="tel" id="adm-stu-phone" maxlength="14" inputmode="numeric" placeholder="10-digit mobile number" oninput="sanitizeIndianPhoneInput(this)">
+                    </div>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Floor:</label>
+                    <select id="adm-floor" onchange="updateRooms('adm-floor','adm-room'); onAdmissionBedPreview()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="">-- Choose Floor --</option>
+                        <option value="ground">Ground Floor (101 - 135)</option>
+                        <option value="first">First Floor (201 - 235)</option>
+                        <option value="second">Second Floor (301 - 335)</option>
+                    </select>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Room Number:</label>
+                    <select id="adm-room" onchange="onAdmissionBedPreview()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="">-- Choose Room --</option>
+                    </select>
+
+                    <div id="adm-bed-dots-preview"></div>
+
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Select Bed Number (🛏️):</label>
+                    <select id="adm-target-bed" onchange="onAdmissionBedPreview()" style="width:100%;margin:4px 0;padding:8px">
+                        <option value="">-- Choose Bed --</option>
+                        <option value="1">🛏️ Bed 1</option>
+                        <option value="2">🛏️ Bed 2</option>
+                        <option value="3">🛏️ Bed 3</option>
+                    </select>
+
+                    <p id="adm-bed-status-note" style="font-size:12px;color:#374151;background:#fff;padding:8px 10px;border-radius:6px;margin-top:8px">Select a Floor and Room first, then click a Bed (🟢 Green = Available, 🔴 Red = Occupied).</p>
+
+                    <button class="btn" style="margin-top:10px" onclick="admitAndAllocateStudent()">✅ Confirm Admission & Assign Bed 🛏️</button>
+                </div>`;
+            }
+
+            h += `<h4>📋 Admitted Students & Room Details</h4><div style="margin-top:10px">`;
+            const sortedAllocs = [...roomAllocations].sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0));
+            if (!sortedAllocs.length) h += `<p style="color:#6b7280;font-size:13px">No admissions recorded yet.</p>`;
+
+            sortedAllocs.forEach(ra => {
+                const b1 = ra.student1 || "Vacant";
+                const b2 = ra.student2 || "Vacant";
+                const b3 = ra.student3 || "Vacant";
+                const occCount = [b1, b2, b3].filter(x => x && String(x).trim() && x !== "Vacant").length;
+                const floorTxt = ra.floorLabel || getRoomFloorLabel(ra.room);
+
+                const detailsList = Array.isArray(ra.students) && ra.students.length
+                    ? ra.students
+                    : [b1, b2, b3]
+                        .map((nm, idx) => ({ bed: String(idx + 1), name: nm, phone: "", admissionNo: "" }))
+                        .filter(x => x.name && x.name !== "Vacant");
+
+                let detailsHtml = "";
+                if (detailsList.length) {
+                    detailsHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #d1d5db;font-size:12px;color:#374151">`;
+                    detailsList.forEach(sd => {
+                        const admCode = sd.admissionNo || `ADM-${ra.room}-B${sd.bed}`;
+                        detailsHtml += `<div style="margin-bottom:4px">🛏️ <strong>Bed ${escapeAttr(sd.bed)}:</strong> <code>${escapeAttr(admCode)}</code> — ${escapeAttr(sd.name)}${sd.phone ? ` • 📞 ${escapeAttr(formatPhoneDisplay(sd.phone))}` : ''}${sd.admittedAt ? ` • 🗓️ ${escapeAttr(formatDisplayDate(new Date(sd.admittedAt)))}` : ''}</div>`;
+                    });
+                    detailsHtml += `</div>`;
+                }
+
+                h += `
+                    <div class="item-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                            <strong>Room ${escapeAttr(ra.room)} (${escapeAttr(floorTxt)}) • ${occCount}/3 Beds</strong>
+                            <span class="badge ${occCount >= 3 ? 'badge-paid' : 'badge-pending'}">${occCount >= 3 ? 'Full (3/3)' : `Occupied (${occCount}/3)`}</span>
+                        </div>
+                        <p style="margin-top:6px;font-size:13px">🛏️ <strong>Bed 1:</strong> ${escapeAttr(b1)} | 🛏️ <strong>Bed 2:</strong> ${escapeAttr(b2)} | 🛏️ <strong>Bed 3:</strong> ${escapeAttr(b3)}</p>
+                        ${detailsHtml}
+                    </div>`;
+            });
+            h += `</div>`;
+
+            if (st) {
+                h += `
+                    <div class="delete-box-panel">
+                        <h4 style="color:#dc2626;margin-bottom:8px">🗑️ Delete Box (Admission Records)</h4>
+                        <p style="font-size:12px;color:#4b5563;margin-bottom:8px">Select an admission or room allocation record below to delete it.</p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <select id="delete-box-select" style="flex:1;min-width:200px;padding:8px;border:1px solid #fca5a5;border-radius:8px;background:#fff">
+                                <option value="">-- Select Admission Record to Delete --</option>
+                                ${sortedAllocs.map(ra => {
+                                    const occ = [ra.student1, ra.student2, ra.student3].filter(x => x && x !== "Vacant").join(", ") || "Vacant";
+                                    return `<option value="${escapeAttr(ra.firebaseId)}">Room ${escapeAttr(ra.room)} — ${escapeAttr(occ)}</option>`;
+                                }).join('')}
+                            </select>
+                            <button type="button" onclick="deleteSelectedFromBox()" style="background:#ef4444;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-weight:bold;font-size:13px;cursor:pointer">🗑️ Delete Selected</button>
+                        </div>
+                    </div>`;
+            }
+
+            content.innerHTML = h;
+        }
+
+        async function admitAndAllocateStudent() {
+            const stuName = document.getElementById('adm-stu-name').value.trim();
+            const rawPhone = document.getElementById('adm-stu-phone').value.trim();
+            const rm = document.getElementById('adm-room').value;
+            const targetBed = document.getElementById('adm-target-bed').value;
+
+            if (!stuName) return alert("Please enter student full name for admission!");
+            if (!rm) return alert("Please select floor and room number!");
+            if (!targetBed || !["1", "2", "3"].includes(targetBed)) return alert("Please select Bed 1, Bed 2, or Bed 3!");
+
+            const occMap = getBedOccupancyMap(rm);
+            if (occMap[targetBed] && occMap[targetBed].occupied) {
+                return alert(`🔴 Bed ${targetBed} (Room ${rm}) is already occupied by ${occMap[targetBed].holder} (${occMap[targetBed].reason}). New admission is not allowed on this bed!`);
+            }
+
+            let formattedPhone = "";
+            if (rawPhone) {
+                const pCheck = parseAndValidateIndianPhone(rawPhone);
+                if (!pCheck.ok) return alert(pCheck.message);
+                formattedPhone = pCheck.formatted;
+            }
+
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
+            const ex = roomAllocations.find(r => String(r.room) === String(rm));
+            let s1 = (ex && ex.student1) || "Vacant";
+            let s2 = (ex && ex.student2) || "Vacant";
+            let s3 = (ex && ex.student3) || "Vacant";
+
+            if (targetBed === "1") s1 = stuName;
+            else if (targetBed === "2") s2 = stuName;
+            else if (targetBed === "3") s3 = stuName;
+
+            const admNo = `ADM-${rm}-B${targetBed}-${String(Date.now()).slice(-4)}`;
+
+            const prevDetails = (ex && Array.isArray(ex.students))
+                ? ex.students.filter(x => String(x.bed) !== String(targetBed))
+                : [
+                    { bed: "1", name: s1, phone: "", admissionNo: "" },
+                    { bed: "2", name: s2, phone: "", admissionNo: "" },
+                    { bed: "3", name: s3, phone: "", admissionNo: "" }
+                ].filter(x => String(x.bed) !== String(targetBed) && x.name && x.name !== "Vacant");
+
+            prevDetails.push({
+                bed: String(targetBed),
+                name: stuName,
+                phone: formattedPhone,
+                admissionNo: admNo,
+                admittedAt: Date.now()
+            });
+            prevDetails.sort((a, b) => (parseInt(a.bed, 10) || 0) - (parseInt(b.bed, 10) || 0));
+
+            const occupiedCount = [s1, s2, s3].filter(x => x && String(x).trim() && x !== "Vacant").length;
+            const status = occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`;
+            const floorLabel = getRoomFloorLabel(rm);
+
+            const payload = {
+                room: String(rm),
+                floorLabel,
+                student1: s1,
+                student2: s2,
+                student3: s3,
+                students: prevDetails,
+                status,
+                updatedAt: Date.now()
+            };
+
+            if (ex) {
+                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ex.firebaseId}`), payload);
+            } else {
+                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "allocations")), payload);
+            }
+
+            if (formattedPhone) {
+                const pk = keyOf(formattedPhone);
+                if (pk) {
+                    const existingReg = registeredStudents[pk] || {};
+                    await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${pk}`), {
+                        name: stuName,
+                        phone: formattedPhone,
+                        room: String(rm),
+                        bed: String(targetBed),
+                        admissionNo: admNo,
+                        admitted: true,
+                        lastLogin: existingReg.lastLogin || Date.now()
+                    });
+                }
+            }
+
+            alert(`Admission & Bed Allocation complete!\nAdmission No: ${admNo}\nStudent: ${stuName}\nRoom: ${rm} (${floorLabel}), Bed ${targetBed}`);
+            renderAdmissionModule();
         }
 
         async function editAllocationById(id) {
@@ -2506,39 +3531,252 @@
             const n3 = prompt("Edit Bed 3 Student Name:", a.student3 || "Vacant");
             if (n3 === null) return;
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-            const c1 = n1.trim() || a.student1;
+            const c1 = n1.trim() || "Vacant";
             const c2 = n2.trim() || "Vacant";
             const c3 = n3.trim() || "Vacant";
             const occupiedCount = [c1, c2, c3].filter(x => x && x !== "Vacant").length;
+            const updatedDetails = [
+                { bed: "1", name: c1, phone: "" },
+                { bed: "2", name: c2, phone: "" },
+                { bed: "3", name: c3, phone: "" }
+            ].filter(x => x.name && x.name !== "Vacant");
+
             await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${id}`), {
                 student1: c1,
                 student2: c2,
                 student3: c3,
+                students: updatedDetails,
                 status: occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`
             });
         }
 
         async function deleteAllocation(id) {
-            if (confirm("Are you sure you want to delete this room allocation?")) {
+            if (!id) return;
+            if (confirm("Are you sure you want to delete this room allocation / admission?")) {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${id}`));
+                showToast("Record deleted.");
             }
         }
 
-        /* Fees */
+        async function deleteSelectedFromBox() {
+            const sel = document.getElementById('delete-box-select');
+            if (!sel || !sel.value) {
+                return alert("Please select an item from the Delete Box first!");
+            }
+            await deleteAllocation(sel.value);
+        }
+
+        /* Fees (Room + Bed + Auto-Lookup + Edit/Send/Reset) */
+        function getFeeRecordKey(room, bed) {
+            const rm = String(room || "").trim();
+            const bd = String(bed || "").trim();
+            return bd ? `${rm}_${bd}` : rm;
+        }
+
+        function parseFeeRecordKey(k, rec) {
+            if (rec && rec.room) {
+                return { room: String(rec.room), bed: String(rec.bed || "") };
+            }
+            const parts = String(k || "").split("_");
+            return { room: parts[0] || String(k || ""), bed: parts[1] || "" };
+        }
+
+        function findOccupantForRoomBed(room, bed) {
+            const rm = String(room || "").trim();
+            const bd = String(bed || "").trim();
+            if (!rm || !bd) return null;
+
+            const matchedReg = Object.keys(registeredStudents)
+                .map(k => ({ key: k, ...registeredStudents[k] }))
+                .filter(st => String(st.room || "").trim() === rm && String(st.bed || "").trim() === bd)
+                .sort((a, b) => (b.lastLogin || 0) - (a.lastLogin || 0));
+
+            if (matchedReg.length > 0) {
+                return {
+                    name: matchedReg[0].name || "",
+                    phone: formatPhoneDisplay(matchedReg[0].phone || matchedReg[0].key),
+                    source: "Logged-in Student"
+                };
+            }
+
+            const alloc = roomAllocations.find(ra => String(ra.room || "").trim() === rm);
+            if (alloc) {
+                const bedName = bd === "1" ? alloc.student1 : bd === "2" ? alloc.student2 : bd === "3" ? alloc.student3 : "";
+                if (bedName && bedName !== "Vacant") {
+                    const det = Array.isArray(alloc.students) ? alloc.students.find(x => String(x.bed) === bd) : null;
+                    return {
+                        name: bedName,
+                        phone: det && det.phone ? formatPhoneDisplay(det.phone) : "",
+                        source: "Room Allocation"
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        function onStaffFeeSelectionChange(triggerSource) {
+            const roomEl = document.getElementById('staff-fee-room');
+            const bedEl = document.getElementById('staff-fee-bed');
+            const previewBox = document.getElementById('fee-auto-preview');
+            const nameInput = document.getElementById('staff-stu-name');
+            const annualInput = document.getElementById('staff-annual-fee');
+            const messInput = document.getElementById('staff-mess-dues');
+            const statusInput = document.getElementById('staff-fee-status');
+            const formTitle = document.getElementById('form-title');
+
+            if (!roomEl || !bedEl || !previewBox) return;
+            const room = String(roomEl.value || "").trim();
+            const bed = String(bedEl.value || "").trim();
+
+            if (!room || !bed) {
+                previewBox.style.display = 'none';
+                previewBox.innerHTML = '';
+                return;
+            }
+
+            const recordKey = getFeeRecordKey(room, bed);
+            const existingFee = feeRecords[recordKey] || null;
+            const occupant = findOccupantForRoomBed(room, bed);
+
+            const resolvedName = (existingFee && existingFee.name)
+                ? existingFee.name
+                : (occupant && occupant.name ? occupant.name : "");
+
+            if (nameInput) nameInput.value = resolvedName;
+
+            if (existingFee) {
+                editingFeeKey = recordKey;
+                if (annualInput) annualInput.value = existingFee.annualFee || "₹45,000";
+                if (messInput) messInput.value = existingFee.messDues || "₹0";
+                if (statusInput) statusInput.value = existingFee.status || "Pending";
+                if (formTitle) formTitle.innerText = `Room ${room}, Bed ${bed} — Existing Fee Record Loaded (Edit & Send)`;
+
+                const isPaid = existingFee.status === 'Paid';
+                previewBox.style.display = 'block';
+                previewBox.style.background = isPaid ? '#ecfdf5' : '#fffbeb';
+                previewBox.style.borderColor = isPaid ? '#10b981' : '#f59e0b';
+                previewBox.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                        <strong>👤 Student: ${escapeAttr(resolvedName || 'Not Set')}</strong>
+                        <span class="badge ${isPaid ? 'badge-paid' : 'badge-pending'}">${escapeAttr(existingFee.status)}</span>
+                    </div>
+                    ${occupant && occupant.phone ? `<div style="font-size:12px;color:#4b5563;margin-top:3px">📞 ${escapeAttr(occupant.phone)} (${escapeAttr(occupant.source)})</div>` : ''}
+                    <div style="font-size:12px;color:#374151;margin-top:6px">
+                        📋 <strong>Previous Record Found:</strong> Annual Fee: <strong>${escapeAttr(existingFee.annualFee)}</strong> | Mess Dues: <strong>${escapeAttr(existingFee.messDues)}</strong>
+                    </div>
+                    <div style="font-size:11px;color:#6b7280;margin-top:4px">
+                        ✏️ You can edit the Student Name or Status (Paid / Pending) and send it to the student, or click Reset.
+                    </div>`;
+            } else {
+                editingFeeKey = null;
+                if (annualInput) annualInput.value = "₹45,000";
+                if (messInput) messInput.value = "";
+                if (statusInput) statusInput.value = "Pending";
+                if (formTitle) formTitle.innerText = `Manage Student Fee Record — Room ${room}, Bed ${bed}`;
+
+                previewBox.style.display = 'block';
+                previewBox.style.background = '#eef2ff';
+                previewBox.style.borderColor = '#6366f1';
+                if (occupant && occupant.name) {
+                    previewBox.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                            <strong>👤 Auto-Detected Student: ${escapeAttr(occupant.name)}</strong>
+                            <span class="badge badge-pending">No Fee Record Yet</span>
+                        </div>
+                        ${occupant.phone ? `<div style="font-size:12px;color:#4b5563;margin-top:3px">📞 ${escapeAttr(occupant.phone)} (${escapeAttr(occupant.source)})</div>` : ''}
+                        <div style="font-size:11px;color:#4b5563;margin-top:5px">
+                            ℹ️ No fee record exists for this bed yet. Edit or confirm the name, set Paid/Pending status, and save.
+                        </div>`;
+                } else {
+                    previewBox.innerHTML = `
+                        <div style="font-size:12px;color:#374151">
+                            ℹ️ <strong>Room ${escapeAttr(room)}, Bed ${escapeAttr(bed)}:</strong> No student login or previous fee record found yet. Enter a name and save the fee record.
+                        </div>`;
+                }
+            }
+        }
+
+        function resetStaffFeeForm() {
+            editingFeeKey = null;
+            const fe = document.getElementById('staff-fee-floor');
+            const re = document.getElementById('staff-fee-room');
+            const be = document.getElementById('staff-fee-bed');
+            const ne = document.getElementById('staff-stu-name');
+            const ae = document.getElementById('staff-annual-fee');
+            const me = document.getElementById('staff-mess-dues');
+            const se = document.getElementById('staff-fee-status');
+            const pb = document.getElementById('fee-auto-preview');
+            const ft = document.getElementById('form-title');
+
+            if (fe) fe.value = "";
+            if (re) re.innerHTML = '<option value="">-- Choose Floor First --</option>';
+            if (be) be.value = "";
+            if (ne) ne.value = "";
+            if (ae) ae.value = "₹45,000";
+            if (me) me.value = "";
+            if (se) se.value = "Paid";
+            if (pb) {
+                pb.style.display = 'none';
+                pb.innerHTML = '';
+            }
+            if (ft) ft.innerText = "Manage Student Fee Record";
+        }
+
         function renderFeePayments() {
             const content = document.getElementById('modal-content');
             let h = `<h2>💰 Fee & Payments</h2><hr style="margin:10px 0">`;
             if (currentUser.role === 'student') {
-                const f = feeRecords[currentUser.room] || { name: currentUser.name, status: "Pending", annualFee: "₹45,000", messDues: "₹1,200" };
-                h += `<div class="item-card" style="border-left-color:#10b981"><h3>Private Record: Room ${escapeAttr(currentUser.room)}</h3><p style="margin-top:8px"><strong>Student Name:</strong> ${escapeAttr(f.name || currentUser.name)}</p><p><strong>Annual Fee:</strong> ${escapeAttr(f.annualFee)}</p><p><strong>Mess Dues:</strong> ${escapeAttr(f.messDues)}</p><p style="margin-top:8px"><strong>Payment Status:</strong> <span class="badge ${f.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(f.status)}</span></p></div>`;
+                const exactKey = getFeeRecordKey(currentUser.room, currentUser.bed);
+                const f = feeRecords[exactKey] || feeRecords[currentUser.room] || {
+                    name: currentUser.name,
+                    room: currentUser.room,
+                    bed: currentUser.bed || "",
+                    status: "Pending",
+                    annualFee: "₹45,000",
+                    messDues: "₹1,200"
+                };
+                const bedLabel = currentUser.bed ? ` | Bed ${currentUser.bed}` : '';
+                const updatedNote = f.updatedAt ? `<p style="font-size:11px;color:#6b7280;margin-top:6px">Last Updated: ${escapeAttr(new Date(f.updatedAt).toLocaleString())}${f.updatedBy ? ` by ${escapeAttr(f.updatedBy)}` : ''}</p>` : '';
+                h += `<div class="item-card" style="border-left-color:${f.status === 'Paid' ? '#10b981' : '#f59e0b'}"><h3>Private Record: Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)}</h3><p style="margin-top:8px"><strong>Student Name:</strong> ${escapeAttr(f.name || currentUser.name)}</p><p><strong>Room & Bed:</strong> Room ${escapeAttr(currentUser.room)}${currentUser.bed ? `, Bed ${currentUser.bed}` : ''}</p><p><strong>Annual Fee:</strong> ${escapeAttr(f.annualFee)}</p><p><strong>Mess Dues:</strong> ${escapeAttr(f.messDues)}</p><p style="margin-top:8px"><strong>Payment Status:</strong> <span class="badge ${f.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(f.status)}</span></p>${updatedNote}</div>`;
             } else {
-                h += `<div style="background:#f3f4f6;padding:15px;border-radius:8px;margin-bottom:15px"><h4 id="form-title">Manage Student Fee Record</h4><label style="font-size:12px;font-weight:bold;margin-top:8px;display:block">Select Floor:</label><select id="staff-fee-floor" onchange="updateRooms('staff-fee-floor','staff-fee-room')" style="width:100%;margin:6px 0;padding:8px"><option value="">-- Select Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select><label style="font-size:12px;font-weight:bold;display:block">Select Room Number:</label><select id="staff-fee-room" style="width:100%;margin:6px 0;padding:8px"><option value="">-- Choose Floor First --</option></select><label style="font-size:12px;font-weight:bold;display:block">Student Name:</label><input type="text" id="staff-stu-name" placeholder="Enter student name" style="width:100%;margin:6px 0;padding:8px"><label style="font-size:12px;font-weight:bold;display:block">Annual Fee:</label><input type="text" id="staff-annual-fee" value="₹45,000" style="width:100%;margin:6px 0;padding:8px"><label style="font-size:12px;font-weight:bold;display:block">Mess Dues:</label><input type="text" id="staff-mess-dues" placeholder="e.g. ₹0 or ₹2,500" style="width:100%;margin:6px 0;padding:8px"><label style="font-size:12px;font-weight:bold;display:block">Payment Status:</label><select id="staff-fee-status" style="width:100%;margin:6px 0;padding:8px"><option value="Paid">Paid</option><option value="Pending">Pending</option></select><button class="btn" style="margin-top:10px" onclick="saveFeeRecord()">Save Fee Record</button></div><h4>All Registered Fee Records</h4><div style="margin-top:10px">`;
-                const ks = Object.keys(feeRecords).sort((a, b) => a - b);
+                h += `<div style="background:#f3f4f6;padding:15px;border-radius:8px;margin-bottom:15px"><h4 id="form-title">Manage Student Fee Record</h4>
+                <label style="font-size:12px;font-weight:bold;margin-top:8px;display:block">Select Floor:</label>
+                <select id="staff-fee-floor" onchange="updateRooms('staff-fee-floor','staff-fee-room'); onStaffFeeSelectionChange('floor')" style="width:100%;margin:6px 0;padding:8px"><option value="">-- Select Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select>
+                <label style="font-size:12px;font-weight:bold;display:block">Select Room Number:</label>
+                <select id="staff-fee-room" onchange="onStaffFeeSelectionChange('room')" style="width:100%;margin:6px 0;padding:8px"><option value="">-- Choose Floor First --</option></select>
+                <label style="font-size:12px;font-weight:bold;display:block">Select Bed Number:</label>
+                <select id="staff-fee-bed" onchange="onStaffFeeSelectionChange('bed')" style="width:100%;margin:6px 0;padding:8px"><option value="">-- Select Bed --</option><option value="1">Bed 1</option><option value="2">Bed 2</option><option value="3">Bed 3</option></select>
+                <div id="fee-auto-preview" style="display:none;padding:10px 12px;border-radius:8px;border-left:4px solid #6366f1;background:#eef2ff;margin:8px 0"></div>
+                <label style="font-size:12px;font-weight:bold;display:block">Student Name (Auto-Filled & Editable):</label>
+                <input type="text" id="staff-stu-name" placeholder="Select floor, room & bed to auto-load name or type here" style="width:100%;margin:6px 0;padding:8px">
+                <label style="font-size:12px;font-weight:bold;display:block">Annual Fee:</label>
+                <input type="text" id="staff-annual-fee" value="₹45,000" style="width:100%;margin:6px 0;padding:8px">
+                <label style="font-size:12px;font-weight:bold;display:block">Mess Dues:</label>
+                <input type="text" id="staff-mess-dues" placeholder="e.g. ₹0 or ₹2,500" style="width:100%;margin:6px 0;padding:8px">
+                <label style="font-size:12px;font-weight:bold;display:block">Payment Status:</label>
+                <select id="staff-fee-status" style="width:100%;margin:6px 0;padding:8px"><option value="Paid">Paid</option><option value="Pending">Pending</option></select>
+                <div style="display:flex;gap:10px;margin-top:10px">
+                    <button class="btn" style="flex:2" onclick="saveFeeRecord()">Save & Send to Student</button>
+                    <button type="button" onclick="resetStaffFeeForm()" style="flex:1;background:#6b7280;color:#fff;border:none;padding:12px 14px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🔄 Reset</button>
+                </div></div>
+                <h4>All Registered Fee Records</h4><div style="margin-top:10px">`;
+
+                const ks = Object.keys(feeRecords).sort((a, b) => {
+                    const pa = parseFeeRecordKey(a, feeRecords[a]);
+                    const pb = parseFeeRecordKey(b, feeRecords[b]);
+                    const rDiff = (parseInt(pa.room, 10) || 0) - (parseInt(pb.room, 10) || 0);
+                    if (rDiff !== 0) return rDiff;
+                    return (parseInt(pa.bed, 10) || 0) - (parseInt(pb.bed, 10) || 0);
+                });
+
                 if (!ks.length) h += `<p style="color:#6b7280;font-size:13px">No fee records found.</p>`;
-                ks.forEach(rm => {
-                    const r = feeRecords[rm];
-                    h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(rm)} - ${escapeAttr(r.name)}</strong><span class="badge ${r.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(r.status)}</span></div><p style="margin-top:4px;font-size:13px">Annual Fee: ${escapeAttr(r.annualFee)} | Mess Dues: ${escapeAttr(r.messDues)}</p><div style="margin-top:8px;display:flex;gap:10px"><button onclick="editFeeRecord('${escapeAttr(rm)}')" style="background:#3b82f6;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteFeeRecord('${escapeAttr(rm)}')" style="background:#ef4444;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div></div>`;
+                ks.forEach(fk => {
+                    const r = feeRecords[fk];
+                    const parsed = parseFeeRecordKey(fk, r);
+                    const bedText = parsed.bed ? `, Bed ${parsed.bed}` : '';
+                    h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(parsed.room)}${escapeAttr(bedText)} - ${escapeAttr(r.name)}</strong><span class="badge ${r.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(r.status)}</span></div><p style="margin-top:4px;font-size:13px">Annual Fee: ${escapeAttr(r.annualFee)} | Mess Dues: ${escapeAttr(r.messDues)}</p><div style="margin-top:8px;display:flex;gap:10px"><button onclick="editFeeRecord('${escapeAttr(fk)}')" style="background:#3b82f6;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteFeeRecord('${escapeAttr(fk)}')" style="background:#ef4444;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div></div>`;
                 });
                 h += `</div>`;
             }
@@ -2547,48 +3785,69 @@
 
         async function saveFeeRecord() {
             const rs = document.getElementById('staff-fee-room');
-            const room = (rs && rs.value) ? rs.value : editingFeeRoom;
+            const bs = document.getElementById('staff-fee-bed');
+            const prevParsed = editingFeeKey ? parseFeeRecordKey(editingFeeKey, feeRecords[editingFeeKey]) : null;
+            const room = (rs && rs.value) ? rs.value : (prevParsed ? prevParsed.room : "");
+            const bed = (bs && bs.value) ? bs.value : (prevParsed ? prevParsed.bed : "");
             const name = document.getElementById('staff-stu-name').value.trim();
             const annual = document.getElementById('staff-annual-fee').value.trim();
             const mess = document.getElementById('staff-mess-dues').value.trim();
             const status = document.getElementById('staff-fee-status').value;
 
-            if (!room || !name) return alert("Please select room and enter student name!");
+            if (!room || !bed || !name) return alert("Please select floor, room, bed number, and enter student name!");
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-            await window.rtdbSet(window.rtdbRef(window.db, `fees/${room}`), {
+
+            const recordKey = getFeeRecordKey(room, bed);
+            if (editingFeeKey && editingFeeKey !== recordKey) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${editingFeeKey}`)).catch(() => {});
+            }
+
+            await window.rtdbSet(window.rtdbRef(window.db, `fees/${recordKey}`), {
+                room: String(room),
+                bed: String(bed),
                 name,
                 annualFee: annual || "₹45,000",
                 messDues: mess || "₹0",
-                status
+                status,
+                updatedAt: Date.now(),
+                updatedBy: currentUser ? currentUser.name : "Staff"
             });
-            editingFeeRoom = null;
-            alert(`Fee record saved for Room ${room}`);
+            editingFeeKey = null;
+            alert(`Fee record saved & sent for Room ${room}, Bed ${bed} (${name}) — Status: ${status}`);
             renderFeePayments();
         }
 
-        function editFeeRecord(rm) {
-            const r = feeRecords[rm];
+        function editFeeRecord(fk) {
+            const r = feeRecords[fk];
             if (!r) return;
-            editingFeeRoom = String(rm);
-            const n = parseInt(rm, 10);
+            editingFeeKey = String(fk);
+            const parsed = parseFeeRecordKey(fk, r);
+            const n = parseInt(parsed.room, 10);
             const f = n >= 101 && n <= 135 ? "ground" : n >= 201 && n <= 235 ? "first" : n >= 301 && n <= 335 ? "second" : "";
             const fe = document.getElementById('staff-fee-floor');
             if (fe && f) {
                 fe.value = f;
-                updateRooms('staff-fee-floor', 'staff-fee-room', rm);
+                updateRooms('staff-fee-floor', 'staff-fee-room', parsed.room);
             }
+            const be = document.getElementById('staff-fee-bed');
+            if (be) be.value = parsed.bed || "";
+            onStaffFeeSelectionChange('edit');
             document.getElementById('staff-stu-name').value = r.name || "";
             document.getElementById('staff-annual-fee').value = r.annualFee || "₹45,000";
             document.getElementById('staff-mess-dues').value = r.messDues || "₹0";
             document.getElementById('staff-fee-status').value = r.status || "Pending";
-            document.getElementById('form-title').innerText = `Editing Fee Record for Room ${rm}`;
+            const bedLabel = parsed.bed ? `, Bed ${parsed.bed}` : '';
+            document.getElementById('form-title').innerText = `Editing Fee Record for Room ${parsed.room}${bedLabel}`;
         }
 
-        async function deleteFeeRecord(rm) {
-            if (confirm(`Delete fee record for Room ${rm}?`)) {
+        async function deleteFeeRecord(fk) {
+            const r = feeRecords[fk];
+            const parsed = parseFeeRecordKey(fk, r);
+            const bedLabel = parsed.bed ? `, Bed ${parsed.bed}` : '';
+            if (confirm(`Delete fee record for Room ${parsed.room}${bedLabel}?`)) {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                if (editingFeeRoom === String(rm)) editingFeeRoom = null;
-                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${rm}`));
+                if (editingFeeKey === String(fk)) editingFeeKey = null;
+                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${fk}`));
             }
         }
 
