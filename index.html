@@ -1251,6 +1251,7 @@
         let editingFeeKey = null;
         let studentLoginInFlight = false;
         let selectedAllotBed = "";
+        let adminStudentSearchQuery = "";
 
         let adminCalOpen = false;
         let selectedPrevDateKey = null;
@@ -1370,11 +1371,6 @@
             return String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
         }
 
-        /**
-         * 1 Bed = 1 Student rule:
-         * Deduplicates registeredStudents so that the same student (by phone, name, or room+bed)
-         * is never counted or listed multiple times when logging in repeatedly.
-         */
         function getUniqueStudentEntries() {
             const rawEntries = Object.keys(registeredStudents || {}).map(k => ({
                 firebaseKey: k,
@@ -1464,6 +1460,42 @@
             await window.rtdbSet(window.rtdbRef(window.db, `registered_students/${k}`), finalRecord);
             for (const staleKey of staleKeysToRemove) {
                 await window.rtdbRemove(window.rtdbRef(window.db, `registered_students/${staleKey}`)).catch(() => {});
+            }
+        }
+
+        async function cleanupBedLocksAndResidents(room, bedsList = ["1", "2", "3"], phoneHint = "") {
+            if (!window.db) return;
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            const rm = String(room || "").trim();
+            const targetBeds = new Set((bedsList || []).map(b => String(b).trim()));
+            const hintPhoneKey = keyOf(phoneHint);
+
+            const regSnap = await window.rtdbGet(window.rtdbRef(window.db, "registered_students"));
+            const regAll = regSnap.val() || {};
+            const phoneKeysToUnlock = new Set();
+            if (hintPhoneKey && !isProtectedVipPhone(hintPhoneKey)) {
+                phoneKeysToUnlock.add(hintPhoneKey);
+            }
+
+            for (const rk of Object.keys(regAll)) {
+                const st = regAll[rk] || {};
+                const stPhoneKey = keyOf(st.phone || rk);
+                const sameBed = rm && String(st.room || "").trim() === rm && targetBeds.has(String(st.bed || "").trim());
+                const samePhone = hintPhoneKey && stPhoneKey === hintPhoneKey;
+
+                if (sameBed || samePhone) {
+                    if (stPhoneKey && !isProtectedVipPhone(stPhoneKey)) {
+                        phoneKeysToUnlock.add(stPhoneKey);
+                    }
+                    await window.rtdbUpdate(window.rtdbRef(window.db, `registered_students/${rk}`), {
+                        activeResident: false,
+                        releasedAt: Date.now()
+                    }).catch(() => {});
+                }
+            }
+
+            for (const pk of phoneKeysToUnlock) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `login_locks/${pk}`)).catch(() => {});
             }
         }
 
@@ -2459,6 +2491,7 @@
             unreadStudentOutpassAlerts = 0;
             unreadStudentFeeAlerts = 0;
             selectedAllotBed = "";
+            adminStudentSearchQuery = "";
             adminCalOpen = false;
             selectedPrevDateKey = null;
             adminCalYear = null;
@@ -2499,6 +2532,63 @@
             if (e.key === 'Escape') closeModal();
         });
 
+        function handleAdminStudentSearchInput(val) {
+            adminStudentSearchQuery = String(val || "");
+            const listWrap = document.getElementById('admin-students-list-wrap');
+            if (listWrap) {
+                listWrap.innerHTML = buildAdminStudentListHtml();
+            }
+        }
+
+        function buildAdminStudentListHtml() {
+            const uniqueStudents = getUniqueStudentEntries();
+            const q = String(adminStudentSearchQuery || "").trim().toLowerCase();
+
+            const filtered = uniqueStudents
+                .filter(st => {
+                    if (!q) return true;
+                    const hay = [
+                        st.name || "",
+                        st.room || "",
+                        st.bed || "",
+                        formatPhoneDisplay(st.phone || st.firebaseKey || "")
+                    ].join(" ").toLowerCase();
+                    return hay.includes(q);
+                })
+                .sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0) || (parseInt(a.bed) || 0) - (parseInt(b.bed) || 0));
+
+            if (!filtered.length) {
+                return `<p style="color:#6b7280;font-size:13px">${q ? 'No matching students found.' : 'No registered students found.'}</p>`;
+            }
+
+            return filtered.map(st => {
+                const k = keyOf(st.phone || st.firebaseKey) || st.firebaseKey;
+                const isVip = isProtectedVipPhone(k);
+                const bl = !isVip && !!(blockedUsers[k] && blockedUsers[k].blocked);
+                const locked = !isVip && !!(loginLocks[k] && loginLocks[k].locked);
+                const on = !!presence[k];
+                const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
+                const upgrades = (parseInt(st.loginCount, 10) || 1) > 1 ? ` • <small style="color:#4f46e5">Upgraded (${st.loginCount}x)</small>` : '';
+                return `
+                    <div class="item-card" style="border-left-color:${bl ? '#ef4444' : '#10b981'};text-align:left">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                            <div>
+                                <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)}${escapeAttr(bedInfo)})${upgrades}<br>
+                                <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+                                ${isVip
+                                    ? `<span class="badge badge-resolved">🎧 Protected</span>`
+                                    : `<span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
+                                       ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
+                                       <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>`
+                                }
+                            </div>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
         function openDeveloperProfile(silent) {
             const content = document.getElementById('modal-content');
             document.getElementById('modal-overlay').style.display = 'flex';
@@ -2525,36 +2615,13 @@
                     </div>`;
 
             if (isStaff) {
-                html += `<hr style="margin:20px 0"><h3 style="color:var(--primary);margin-bottom:10px">🛡️ Admin Dashboard</h3>`;
-                if (!uniqueStudents.length) html += `<p style="color:#6b7280;font-size:13px">No registered students found.</p>`;
-                uniqueStudents
-                    .sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0) || (parseInt(a.bed) || 0) - (parseInt(b.bed) || 0))
-                    .forEach(st => {
-                        const k = keyOf(st.phone || st.firebaseKey) || st.firebaseKey;
-                        const isVip = isProtectedVipPhone(k);
-                        const bl = !isVip && !!(blockedUsers[k] && blockedUsers[k].blocked);
-                        const locked = !isVip && !!(loginLocks[k] && loginLocks[k].locked);
-                        const on = !!presence[k];
-                        const bedInfo = st.bed ? `, Bed ${st.bed}` : '';
-                        const upgrades = (parseInt(st.loginCount, 10) || 1) > 1 ? ` • <small style="color:#4f46e5">Upgraded (${st.loginCount}x)</small>` : '';
-                        html += `
-                            <div class="item-card" style="border-left-color:${bl ? '#ef4444' : '#10b981'};text-align:left">
-                                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-                                    <div>
-                                        <strong>${on ? '🟢' : '⚪'} ${escapeAttr(st.name)}</strong> (Room ${escapeAttr(st.room)}${escapeAttr(bedInfo)})${upgrades}<br>
-                                        <small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(st.phone || k))}</small>
-                                    </div>
-                                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-                                        ${isVip
-                                            ? `<span class="badge badge-resolved">🎧 Protected</span>`
-                                            : `<span class="badge ${bl ? 'badge-rejected' : 'badge-resolved'}">${bl ? 'Blocked' : 'Active'}</span>
-                                               ${locked ? `<button onclick="releaseNumberLock('${escapeAttr(k)}')" style="background:#f59e0b;color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">🔓 Unlock No.</button>` : ''}
-                                               <button onclick="toggleBlockStudent('${escapeAttr(k)}',${!bl})" style="background:${bl ? '#10b981' : '#ef4444'};color:#fff;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px">${bl ? 'Unblock' : 'Block'}</button>`
-                                        }
-                                    </div>
-                                </div>
-                            </div>`;
-                    });
+                html += `
+                    <hr style="margin:20px 0">
+                    <h3 style="color:var(--primary);margin-bottom:10px;text-align:left">🛡️ Admin Dashboard</h3>
+                    <div style="margin-bottom:12px;text-align:left">
+                        <input type="text" id="admin-student-search" value="${escapeAttr(adminStudentSearchQuery)}" oninput="handleAdminStudentSearchInput(this.value)" placeholder="🔍 Search student by Name, Room, Bed, or Phone..." style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px">
+                    </div>
+                    <div id="admin-students-list-wrap">${buildAdminStudentListHtml()}</div>`;
 
                 html += `
                     <hr style="margin:20px 0">
@@ -2761,8 +2828,8 @@
                 }
             }
             const matchedSt = uniqueList.find(st =>
-                normalizeStudentName(st.name) === normalizeStudentName(rec.name) &&
-                (!rec.room || String(st.room) === String(rec.room))
+                (rec.room && rec.bed && String(st.room) === String(rec.room) && String(st.bed) === String(rec.bed)) ||
+                (normalizeStudentName(st.name) === normalizeStudentName(rec.name) && (!rec.room || String(st.room) === String(rec.room)))
             );
             if (matchedSt) {
                 return {
@@ -2778,6 +2845,37 @@
                 bed: rec.bed || "--",
                 phone: recPhone ? formatPhoneDisplay(recPhone) : "Not available"
             };
+        }
+
+        function getUniqueAttendanceForDate(dateKey) {
+            const entries = [];
+            Object.keys(messAttendance || {}).forEach(docId => {
+                const rec = messAttendance[docId] || {};
+                const hist = rec.history || {};
+                const val = hist[dateKey] || (rec.dateKey === dateKey ? rec.eat : null);
+                if (!val) return;
+                entries.push({
+                    docId,
+                    ...rec,
+                    effectiveEat: val
+                });
+            });
+
+            entries.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+
+            const dedupMap = new Map();
+            entries.forEach(item => {
+                const pk = keyOf(item.phone || "");
+                const rm = String(item.room || "").trim();
+                const bd = String(item.bed || "").trim();
+                const nn = normalizeStudentName(item.name);
+                const idKey = (rm && bd)
+                    ? `bed:${rm}_${bd}`
+                    : (pk ? `phone:${pk}` : (rm && nn ? `rn:${rm}_${nn}` : (nn ? `name:${nn}` : `doc:${item.docId}`)));
+                dedupMap.set(idKey, item);
+            });
+
+            return Array.from(dedupMap.values());
         }
 
         function buildAdminPreviousDayPanel(ctx) {
@@ -2816,20 +2914,19 @@
                 const dispDate = dt ? formatDisplayDate(dt) : selectedPrevDateKey;
                 const dayCtx = Object.assign({}, ctx, { targetDayName: dayName });
 
-                const yesEntries = Object.values(messAttendance).filter(rec => {
-                    const hist = rec.history || {};
-                    const val = hist[selectedPrevDateKey] || (rec.dateKey === selectedPrevDateKey ? rec.eat : null);
-                    return val === "Yes";
-                }).map(rec => {
-                    const info = findStudentInfoForAttendance(rec);
-                    return {
-                        name: info.name,
-                        room: info.room,
-                        bed: info.bed,
-                        phone: info.phone,
-                        mealType: effType(rec, dayCtx)
-                    };
-                }).sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0));
+                const yesEntries = getUniqueAttendanceForDate(selectedPrevDateKey)
+                    .filter(rec => rec.effectiveEat === "Yes")
+                    .map(rec => {
+                        const info = findStudentInfoForAttendance(rec);
+                        return {
+                            name: info.name,
+                            room: info.room,
+                            bed: info.bed,
+                            phone: info.phone,
+                            mealType: effType(rec, dayCtx)
+                        };
+                    })
+                    .sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0) || (parseInt(a.bed) || 0) - (parseInt(b.bed) || 0));
 
                 const vegCount = yesEntries.filter(x => x.mealType === "Veg").length;
                 const nonVegCount = yesEntries.filter(x => x.mealType === "NonVeg").length;
@@ -2879,6 +2976,38 @@
                 </div>`;
         }
 
+        function getStudentAttendanceDocId(user) {
+            const rm = String((user && user.room) || "").trim();
+            const bd = String((user && user.bed) || "").trim();
+            const pk = keyOf((user && user.phone) || "");
+            if (rm && bd) return `bed_${rm}_${bd}`;
+            if (pk) return `phone_${pk}`;
+            const safeName = String((user && user.name) || "Student").replace(/[^a-zA-Z0-9]/g, '') || 'Student';
+            return `${rm || '0'}_${safeName}`;
+        }
+
+        function findExistingStudentAttendance(user) {
+            const rm = String((user && user.room) || "").trim();
+            const bd = String((user && user.bed) || "").trim();
+            const pk = keyOf((user && user.phone) || "");
+            const nn = normalizeStudentName((user && user.name) || "");
+
+            const matches = [];
+            Object.keys(messAttendance || {}).forEach(docId => {
+                const rec = messAttendance[docId] || {};
+                const recPhoneKey = keyOf(rec.phone || "");
+                const sameBed = rm && bd && String(rec.room || "").trim() === rm && String(rec.bed || "").trim() === bd;
+                const samePhone = pk && recPhoneKey === pk;
+                const sameRoomName = rm && nn && String(rec.room || "").trim() === rm && normalizeStudentName(rec.name) === nn;
+                if (sameBed || samePhone || sameRoomName) {
+                    matches.push({ docId, ...rec });
+                }
+            });
+
+            matches.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            return matches;
+        }
+
         function renderMessMenu() {
             const content = document.getElementById('modal-content');
             const isStaff = currentUser.role === 'staff';
@@ -2892,13 +3021,19 @@
             }
 
             if (currentUser.role === 'student') {
-                const docId = `${currentUser.room}_${currentUser.name.replace(/[^a-zA-Z0-9]/g, '') || 'Student'}`;
-                const rec = messAttendance[docId] || { history: {} };
+                const matches = findExistingStudentAttendance(currentUser);
+                const docId = (matches[0] && matches[0].docId) || getStudentAttendanceDocId(currentUser);
+                const mergedHistory = {};
+                matches.slice().reverse().forEach(m => {
+                    Object.assign(mergedHistory, m.history || {});
+                });
+                const latestRec = matches[0] || { history: mergedHistory };
+                const rec = Object.assign({}, latestRec, { history: mergedHistory });
                 const cur = rec.dateKey === ctx.targetDateKey ? rec : { eat: 'Yes', type: 'Veg', history: rec.history || {} };
                 const dis = !ctx.isOptInWindowOpen ? 'disabled' : '';
 
                 h += `<div style="background:${ctx.isOptInWindowOpen ? '#d1fae5' : '#fee2e2'};padding:15px;border-radius:12px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h4>🍱 ${ctx.isOptInWindowOpen ? "Tomorrow's" : "Today's"} Meal Opt-In (${ctx.targetDayName}, ${ctx.targetDateDisplay})</h4><span class="badge ${ctx.isOptInWindowOpen ? 'badge-resolved' : 'badge-rejected'}">${ctx.isOptInWindowOpen ? '🟢 WINDOW OPEN (6PM - 6AM)' : '🔒 LOCKED (AFTER 6 AM)'}</span></div>
-                <p style="font-size:12px;color:#4b5563;margin-top:4px">Set whether you will eat in the mess for this meal.</p>
+                <p style="font-size:12px;color:#4b5563;margin-top:4px">Set whether you will eat in the mess for this meal (1 Bed = 1 Meal Count).</p>
                 <div style="margin-top:12px;display:flex;gap:15px;align-items:center"><label style="font-weight:bold">Will you eat?</label><select id="opt-eat" ${dis} style="padding:6px;border-radius:6px"><option value="Yes" ${cur.eat === 'Yes' ? 'selected' : ''}>Yes, I will eat</option><option value="No" ${cur.eat === 'No' ? 'selected' : ''}>No, Skip Meal</option></select></div>
                 ${ctx.isChoiceDay ? `<div style="margin-top:10px;display:flex;gap:15px;align-items:center;flex-wrap:wrap"><label style="font-weight:bold">Select Preference (${ctx.targetDayName}):</label><label><input type="radio" name="opt-type" value="Veg" ${cur.type !== 'NonVeg' ? 'checked' : ''} ${dis}> 🥦 Veg</label><label><input type="radio" name="opt-type" value="NonVeg" ${cur.type === 'NonVeg' ? 'checked' : ''} ${dis}> 🍗 Non-Veg</label></div>` : `<div style="margin-top:10px"><label style="font-weight:bold">Meal Option (${ctx.targetDayName}):</label> <label><input type="radio" name="opt-type" value="Veg" checked ${dis}> 🥦 Veg Only</label></div>`}
                 ${ctx.isOptInWindowOpen ? `<button class="btn" style="margin-top:12px;padding:8px" onclick="saveStudentAttendance('${escapeAttr(docId)}')">Save Meal Choice</button>` : ''}</div>`;
@@ -2907,9 +3042,9 @@
 
             if (isStaff && ctx.isMealDisplayActive) {
                 let tot = 0, veg = 0, nv = 0;
-                const todays = Object.values(messAttendance).filter(a => a.dateKey === ctx.targetDateKey);
+                const todays = getUniqueAttendanceForDate(ctx.targetDateKey);
                 todays.forEach(a => {
-                    if (a.eat === 'Yes') {
+                    if (a.effectiveEat === 'Yes') {
                         tot++;
                         effType(a, ctx) === 'NonVeg' ? nv++ : veg++;
                     }
@@ -2919,12 +3054,13 @@
                 h += `<div style="background:#e0e7ff;padding:15px;border-radius:12px;margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h4>📊 Kitchen Live Count — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)}) • ${escapeAttr(activeMealTab)}</h4><div style="display:flex;gap:6px"><button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px">🖨️ Print List</button><button onclick="shareWhatsAppSummary(${tot},${veg},${nv},'${escapeAttr(ctx.targetDayName)}','${escapeAttr(ctx.targetDateDisplay)}','${escapeAttr(activeMealTab)}')" style="background:#10b981;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px">📲 WhatsApp</button></div></div>
                 <p style="margin-top:8px;font-size:13px"><strong>🍽️ Menu:</strong> ${escapeAttr(menu)}</p>
                 <div style="display:flex;gap:15px;margin-top:10px;font-weight:bold;font-size:14px;flex-wrap:wrap"><span>Total Eating: ${tot}</span>|<span style="color:#059669">🥦 Veg: ${veg}</span>|<span style="color:#dc2626">🍗 Non-Veg: ${nv}</span></div></div>
-                <h4>📋 Sorted Attendance List (Room-wise) — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)})</h4><div style="margin-top:10px">`;
+                <h4>📋 Sorted Attendance List (Room-wise, 1 Bed = 1 Count) — ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)})</h4><div style="margin-top:10px">`;
 
-                const sorted = todays.sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0));
+                const sorted = todays.sort((a, b) => (parseInt(a.room) || 0) - (parseInt(b.room) || 0) || (parseInt(a.bed) || 0) - (parseInt(b.bed) || 0));
                 if (!sorted.length) h += `<p style="color:#6b7280;font-size:13px">New cycle started for ${escapeAttr(ctx.targetDayName)} (${escapeAttr(ctx.targetDateDisplay)}). No opt-in entries yet.</p>`;
                 sorted.forEach(i => {
-                    h += `<div class="item-card" style="border-left-color:${i.eat === 'Yes' ? '#10b981' : '#ef4444'}"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(i.room)} - ${escapeAttr(i.name)}</strong><span class="badge ${i.eat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${escapeAttr(i.eat)} (${effType(i, ctx)})</span></div></div>`;
+                    const bedTag = i.bed ? ` (Bed ${i.bed})` : '';
+                    h += `<div class="item-card" style="border-left-color:${i.effectiveEat === 'Yes' ? '#10b981' : '#ef4444'}"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(i.room)}${escapeAttr(bedTag)} - ${escapeAttr(i.name)}</strong><span class="badge ${i.effectiveEat === 'Yes' ? 'badge-resolved' : 'badge-rejected'}">Eating: ${escapeAttr(i.effectiveEat)} (${effType(i, ctx)})</span></div></div>`;
                 });
                 h += `</div><hr style="margin:20px 0">`;
             }
@@ -2945,14 +3081,22 @@
             const r = document.querySelector('input[name="opt-type"]:checked');
             const type = ctx.isChoiceDay ? (r ? r.value : 'Veg') : 'Veg';
             const eat = e.value;
-            const hist = Object.assign({}, (messAttendance[docId] || {}).history || {});
-            hist[ctx.targetDateKey] = eat;
-            const at = Date.now();
-            seenAttendanceSignatures[docId] = `${at}_${eat}_${type}_${ctx.targetDateKey}`;
 
             try {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${docId}`), {
+
+                const matches = findExistingStudentAttendance(currentUser);
+                const canonicalDocId = getStudentAttendanceDocId(currentUser);
+                const hist = {};
+                matches.slice().reverse().forEach(m => {
+                    Object.assign(hist, m.history || {});
+                });
+                hist[ctx.targetDateKey] = eat;
+
+                const at = Date.now();
+                seenAttendanceSignatures[canonicalDocId] = `${at}_${eat}_${type}_${ctx.targetDateKey}`;
+
+                await window.rtdbSet(window.rtdbRef(window.db, `mess_attendance/${canonicalDocId}`), {
                     room: String(currentUser.room),
                     bed: String(currentUser.bed || ''),
                     phone: String(currentUser.phone || ''),
@@ -2964,6 +3108,16 @@
                     history: hist,
                     updatedAt: at
                 });
+
+                for (const m of matches) {
+                    if (m.docId && m.docId !== canonicalDocId) {
+                        await window.rtdbRemove(window.rtdbRef(window.db, `mess_attendance/${m.docId}`)).catch(() => {});
+                    }
+                }
+                if (docId && docId !== canonicalDocId) {
+                    await window.rtdbRemove(window.rtdbRef(window.db, `mess_attendance/${docId}`)).catch(() => {});
+                }
+
                 alert("Your meal preference has been saved!");
                 renderMessMenu();
             } catch (err) {
@@ -3373,7 +3527,10 @@
 
             await setSingleBedValue(rm, bedNum, cleanName, { phone: formattedPhone });
 
-            if (formattedPhone && cleanName !== "Vacant") {
+            if (cleanName === "Vacant") {
+                await cleanupBedLocksAndResidents(rm, [bedNum], formattedPhone);
+                await rotateSingleBedKey(rm, bedNum, "bed-vacated-allotment");
+            } else if (formattedPhone) {
                 const pk = keyOf(formattedPhone);
                 if (pk) {
                     const prevReg = registeredStudents[pk] || {};
@@ -3678,7 +3835,7 @@
 
                     <div class="delete-box-panel">
                         <h4 style="color:#dc2626;margin-bottom:8px">🗑️ Delete Box (Admission Records)</h4>
-                        <p style="font-size:12px;color:#4b5563;margin-bottom:8px">Select a room/bed record to delete. Confirmation will ask with Room No. & Bed No., and the deleted bed's key will rotate automatically.</p>
+                        <p style="font-size:12px;color:#4b5563;margin-bottom:8px">Select a room/bed record to delete. Confirmation will ask with Room No. & Bed No., rotate bed keys, and clean stale locks.</p>
                         <div style="display:flex;gap:8px;flex-wrap:wrap">
                             <select id="delete-box-select" style="flex:1;min-width:200px;padding:8px;border:1px solid #fca5a5;border-radius:8px;background:#fff">
                                 <option value="">-- Select Admission Record to Delete --</option>
@@ -3696,18 +3853,11 @@
         }
 
         async function vacateBed(rm, bedNum, stuName, phoneStr = "") {
-            if (!confirm(`Vacate Room ${rm}, Bed ${bedNum} (${stuName})?\n\nThis will mark the bed as Vacant so it can be re-allocated or used for re-admission.`)) return;
+            if (!confirm(`Vacate Room ${rm}, Bed ${bedNum} (${stuName})?\n\nThis will mark the bed as Vacant, clean login lock, and rotate the bed key.`)) return;
             await setSingleBedValue(rm, bedNum, "Vacant", {});
-            if (phoneStr) {
-                const pk = keyOf(phoneStr);
-                if (pk && registeredStudents[pk]) {
-                    await window.rtdbUpdate(window.rtdbRef(window.db, `registered_students/${pk}`), {
-                        activeResident: false,
-                        vacatedAt: Date.now()
-                    }).catch(() => {});
-                }
-            }
-            showToast(`🚪 Room ${rm}, Bed ${bedNum} vacated.`);
+            await cleanupBedLocksAndResidents(rm, [bedNum], phoneStr);
+            const newKey = await rotateSingleBedKey(rm, bedNum, "bed-vacated");
+            showToast(`🚪 Room ${rm}, Bed ${bedNum} vacated — new key: ${newKey}`);
             renderAdmissionModule();
         }
 
@@ -3727,6 +3877,7 @@
                     status: "Occupied (0/3)",
                     updatedAt: Date.now()
                 });
+                await cleanupBedLocksAndResidents(ra.room, ["1", "2", "3"], "");
             }
             showToast(`🗓️ New session ${nextSess.trim()} ready — all beds vacated.`);
             renderAdmissionModule();
@@ -3771,6 +3922,7 @@
                 const [prevRm, prevBd] = prevBedRaw.split("|");
                 if (prevRm && prevBd && !(String(prevRm) === String(rm) && String(prevBd) === String(targetBed))) {
                     await setSingleBedValue(prevRm, prevBd, "Vacant", { session: sessionLabel });
+                    await cleanupBedLocksAndResidents(prevRm, [prevBd], "");
                     await rotateSingleBedKey(prevRm, prevBd, "readmission-vacated");
                     vacatedPrevBedLabel = `Room ${prevRm}, Bed ${prevBd}`;
                 }
@@ -3902,15 +4054,21 @@
             const targetAlloc = roomAllocations.find(r => r.firebaseId === id);
             const rmLabel = targetAlloc ? targetAlloc.room : "--";
             const occupiedBeds = [];
+            const phoneHints = [];
             if (targetAlloc) {
                 ["1", "2", "3"].forEach(b => {
                     const nm = b === "1" ? targetAlloc.student1 : b === "2" ? targetAlloc.student2 : targetAlloc.student3;
                     if (nm && String(nm).trim() && nm !== "Vacant") occupiedBeds.push(b);
                 });
+                if (Array.isArray(targetAlloc.students)) {
+                    targetAlloc.students.forEach(sd => {
+                        if (sd && sd.phone) phoneHints.push(sd.phone);
+                    });
+                }
             }
             const bedNoLabel = occupiedBeds.length ? occupiedBeds.join(", ") : "1, 2, 3";
 
-            if (!confirm(`Confirm Delete Record?\n\nRoom No.: ${rmLabel}\nBed No.: ${bedNoLabel}\n\nDeleting this record will automatically generate new keys for the affected bed(s).`)) {
+            if (!confirm(`Confirm Delete Record?\n\nRoom No.: ${rmLabel}\nBed No.: ${bedNoLabel}\n\nDeleting this record will automatically generate new keys for the affected bed(s) and clean stale locks.`)) {
                 return;
             }
 
@@ -3919,6 +4077,7 @@
 
             const bedsToRotate = occupiedBeds.length ? occupiedBeds : ["1", "2", "3"];
             if (targetAlloc && isValidHostelRoom(targetAlloc.room)) {
+                await cleanupBedLocksAndResidents(targetAlloc.room, bedsToRotate, phoneHints[0] || "");
                 for (const b of bedsToRotate) {
                     await rotateSingleBedKey(targetAlloc.room, b, "record-deleted");
                 }
