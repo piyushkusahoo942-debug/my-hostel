@@ -3665,7 +3665,7 @@
         function readDocumentFileAsDataUrl(file) {
             if (!file) return Promise.resolve(null);
             if (file.type && file.type.startsWith("image/")) {
-                return compressImage(file, 0.75, 900).then(dataUrl => ({
+                return compressImage(file, 900, 0.75).then(dataUrl => ({
                     name: file.name,
                     mimeType: "image/jpeg",
                     dataUrl
@@ -4881,10 +4881,10 @@
                                 }).join('')}
                                 ${loginOnlyEntries.map(st => {
                                     const pk = keyOf(st.phone || st.firebaseKey) || st.firebaseKey;
-                                    return `<option value="stu:${escapeAttr(pk)}">[Student] ${escapeAttr(st.name || 'Student')} (Room ${escapeAttr(st.room || '--')}, Bed ${escapeAttr(st.bed || '--')})</option>`;
+                                    return `<option value="stu:${escapeAttr(pk)}">[Student] ${escapeAttr(st.name || 'Student')} (Room ${escapeAttr(st.room || '--')}, Bed ${escapeAttr(st.bed || '--')} • ${escapeAttr(formatPhoneDisplay(st.phone || pk))})</option>`;
                                 }).join('')}
                             </select>
-                            <button type="button" onclick="handleDeleteBoxAction()" style="background:#ef4444;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:bold;cursor:pointer">🗑️ Delete Selected</button>
+                            <button type="button" onclick="deleteSelectedFromBox()" style="background:#ef4444;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:bold;font-size:13px;cursor:pointer">🗑️ Delete Selected</button>
                         </div>
                     </div>`;
             }
@@ -4892,23 +4892,94 @@
             content.innerHTML = h;
         }
 
+        async function vacateBed(room, bed, stuName, phoneHint = "") {
+            const rm = String(room || "").trim();
+            const bd = String(bed || "").trim();
+            if (!rm || !["1", "2", "3"].includes(bd)) return;
+            if (!confirm(`Vacate Room ${rm}, Bed ${bd}${stuName ? ` (${stuName})` : ''}?\n\nThis will mark Bed ${bd} as Vacant (Green), log out any active student on this bed, and rotate the bed verification key.`)) return;
+
+            try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                await setSingleBedValue(rm, bd, "Vacant", {});
+                await cleanupBedLocksAndResidents(rm, [bd], phoneHint);
+                await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${rm}_${bd}`)).catch(() => {});
+                delete admissionDocsMap[`${rm}_${bd}`];
+                await rotateSingleBedKey(rm, bd, "bed-vacated");
+                showToast(`🟢 Room ${rm}, Bed ${bd} is now Vacant.`);
+                openModule('admission');
+            } catch (e) {
+                alert("Error vacating bed: " + e.message);
+            }
+        }
+
+        async function prepareNewAcademicSession() {
+            const nextSess = prompt("Enter New Academic Session label (e.g. 2027-28):", getDefaultSessionLabel());
+            if (!nextSess || !nextSess.trim()) return;
+            if (!confirm(`Start session "${nextSess.trim()}" and vacate all currently allocated beds?\n\nAll beds will become Vacant (Green) for fresh admission / room rotation.`)) return;
+
+            try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                for (const ra of roomAllocations) {
+                    const payload = {
+                        room: String(ra.room),
+                        floorLabel: ra.floorLabel || getRoomFloorLabel(ra.room),
+                        session: nextSess.trim(),
+                        student1: "Vacant",
+                        student2: "Vacant",
+                        student3: "Vacant",
+                        students: [],
+                        status: "Occupied (0/3)",
+                        updatedAt: Date.now()
+                    };
+                    await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ra.firebaseId}`), payload);
+                    await cleanupBedLocksAndResidents(ra.room, ["1", "2", "3"], "");
+                    for (const b of ["1", "2", "3"]) {
+                        await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${ra.room}_${b}`)).catch(() => {});
+                        delete admissionDocsMap[`${ra.room}_${b}`];
+                        await rotateSingleBedKey(ra.room, b, "new-session-reset");
+                    }
+                }
+                showToast(`🗓️ Session ${nextSess.trim()} ready — all beds vacated.`);
+                openModule('admission');
+            } catch (e) {
+                alert("Error starting new session: " + e.message);
+            }
+        }
+
+        async function deleteSelectedFromBox() {
+            const sel = document.getElementById('delete-box-select');
+            if (!sel || !sel.value) return alert("Please select an Admission or Student from the Delete Box list first.");
+            const val = sel.value;
+
+            if (val.startsWith("stu:")) {
+                const pk = val.slice(4);
+                await removeStudentRecordCompletely(pk);
+                openModule('admission');
+                return;
+            }
+
+            const id = val.startsWith("alloc:") ? val.slice(6) : val;
+            await deleteAllocation(id);
+            openModule('admission');
+        }
+
         async function admitAndAllocateStudent() {
             const mode = (document.getElementById('adm-mode') && document.getElementById('adm-mode').value) || "new";
             const sessionLabel = (document.getElementById('adm-session') && document.getElementById('adm-session').value.trim()) || getDefaultSessionLabel();
             const rm = document.getElementById('adm-room').value;
-            const targetBed = document.getElementById('adm-target-bed') ? document.getElementById('adm-target-bed').value : "";
-            const stuName = document.getElementById('adm-stu-name').value.trim();
-            const collegeRoll = document.getElementById('adm-college-roll') ? document.getElementById('adm-college-roll').value.trim() : "";
-            const course = document.getElementById('adm-course') ? document.getElementById('adm-course').value.trim() : "";
+            const targetBed = document.getElementById('adm-target-bed').value;
+            const name = document.getElementById('adm-stu-name').value.trim();
+            const collegeRoll = (document.getElementById('adm-college-roll') && document.getElementById('adm-college-roll').value.trim()) || "";
+            const course = (document.getElementById('adm-course') && document.getElementById('adm-course').value.trim()) || "";
             const rawPhone = document.getElementById('adm-stu-phone').value.trim();
-            const fatherName = document.getElementById('adm-father-name') ? document.getElementById('adm-father-name').value.trim() : "";
-            const rawGuardianPhone = document.getElementById('adm-guardian-phone') ? document.getElementById('adm-guardian-phone').value.trim() : "";
-            const bloodGroup = document.getElementById('adm-blood-group') ? document.getElementById('adm-blood-group').value.trim() : "";
-            const address = document.getElementById('adm-address') ? document.getElementById('adm-address').value.trim() : "";
+            const fatherName = (document.getElementById('adm-father-name') && document.getElementById('adm-father-name').value.trim()) || "";
+            const rawGPhone = (document.getElementById('adm-guardian-phone') && document.getElementById('adm-guardian-phone').value.trim()) || "";
+            const bloodGroup = (document.getElementById('adm-blood-group') && document.getElementById('adm-blood-group').value) || "";
+            const address = (document.getElementById('adm-address') && document.getElementById('adm-address').value.trim()) || "";
 
-            const aadhaarNum = document.getElementById('adm-aadhaar-num') ? document.getElementById('adm-aadhaar-num').value.replace(/[^0-9]/g, '') : "";
-            const matricRoll = document.getElementById('adm-matric-roll') ? document.getElementById('adm-matric-roll').value.trim() : "";
-            const plusTwoRoll = document.getElementById('adm-plustwo-roll') ? document.getElementById('adm-plustwo-roll').value.trim() : "";
+            const aadhaarRaw = (document.getElementById('adm-aadhaar-num') && document.getElementById('adm-aadhaar-num').value.replace(/[^0-9]/g, '')) || "";
+            const matricRoll = (document.getElementById('adm-matric-roll') && document.getElementById('adm-matric-roll').value.trim()) || "";
+            const plusTwoRoll = (document.getElementById('adm-plustwo-roll') && document.getElementById('adm-plustwo-roll').value.trim()) || "";
 
             const fPhoto = document.getElementById('adm-photo-file');
             const fAadhaar = document.getElementById('adm-aadhaar-file');
@@ -4916,37 +4987,37 @@
             const fPlusTwo = document.getElementById('adm-plustwo-file');
             const fReceipt = document.getElementById('adm-receipt-file');
 
-            if (!rm || !targetBed) return alert("Please select Floor, Room Number, and Bed (1, 2, or 3)!");
-            if (!stuName) return alert("Please enter Student Full Name!");
-            if (!collegeRoll) return alert("Please enter College Roll Number!");
-
-            if (mode === "readmission") {
-                if (!canCurrentStaffDoReAdmission()) {
-                    return alert("Only Hostel Incharge, Hostel Supervisor, and Hostel Administrative can perform Re-Admission.");
-                }
-                const authKey = document.getElementById('adm-readmit-key') ? document.getElementById('adm-readmit-key').value.trim() : "";
-                if (!authKey || authKey !== staffCodes[currentUser.position]) {
-                    return alert(`Invalid secret security code for ${currentUser.position}! Re-Admission requires your valid secret key.`);
-                }
+            if (!rm || !targetBed || !name) {
+                return alert("Please select Floor, Room Number, Bed (1/2/3), and enter Student Full Name.");
             }
-
-            if (aadhaarNum.length !== 12) {
-                return alert("Please enter a valid 12-digit Aadhaar Number!");
+            if (!collegeRoll) {
+                return alert("Please enter the student's College Roll Number.");
+            }
+            if (aadhaarRaw.length !== 12) {
+                return alert("Please enter a valid 12-digit Aadhaar Number.");
+            }
+            if (!matricRoll || !plusTwoRoll) {
+                return alert("Please enter both 10th (Matric) Roll Number and +2 Certificate Roll Number.");
             }
             if (!fAadhaar || !fAadhaar.files || !fAadhaar.files[0]) {
-                return alert("Please upload the Aadhaar Card photo or PDF copy!");
-            }
-            if (!matricRoll) {
-                return alert("Please enter the 10th (Matric) Roll Number!");
+                return alert("Please upload the Aadhaar Card photo or PDF copy.");
             }
             if (!fMatric || !fMatric.files || !fMatric.files[0]) {
-                return alert("Please upload the 10th Certificate / Marksheet photo or PDF copy!");
-            }
-            if (!plusTwoRoll) {
-                return alert("Please enter the +2 Certificate Roll Number!");
+                return alert("Please upload the 10th Certificate / Marksheet photo or PDF copy.");
             }
             if (!fPlusTwo || !fPlusTwo.files || !fPlusTwo.files[0]) {
-                return alert("Please upload the +2 Certificate / Marksheet photo or PDF copy!");
+                return alert("Please upload the +2 Certificate / Marksheet photo or PDF copy.");
+            }
+
+            const isReAdmission = mode === "readmission";
+            if (isReAdmission) {
+                if (!canCurrentStaffDoReAdmission()) {
+                    return alert("Only Hostel Incharge, Hostel Supervisor, and Hostel Administrative can process Re-Admission / Room Change.");
+                }
+                const secretKeyInp = (document.getElementById('adm-readmit-key') && document.getElementById('adm-readmit-key').value.trim()) || "";
+                if (secretKeyInp !== staffCodes[currentUser.position]) {
+                    return alert(`Invalid secret key for ${currentUser.position}! Re-Admission requires your valid 7-digit secret code.`);
+                }
             }
 
             let formattedPhone = "";
@@ -4956,33 +5027,23 @@
                 formattedPhone = pCheck.formatted;
             }
 
-            let formattedGuardianPhone = "";
-            if (rawGuardianPhone) {
-                const gCheck = parseAndValidateIndianPhone(rawGuardianPhone);
+            let formattedGPhone = "";
+            if (rawGPhone) {
+                const gCheck = parseAndValidateIndianPhone(rawGPhone);
                 if (!gCheck.ok) return alert("Guardian Phone: " + gCheck.message);
-                formattedGuardianPhone = gCheck.formatted;
-            }
-
-            const occMap = getBedOccupancyMap(rm);
-            const prevBedSelVal = (mode === "readmission" && document.getElementById('adm-prev-bed'))
-                ? document.getElementById('adm-prev-bed').value
-                : "";
-            const isMovingFromSameBed = prevBedSelVal === `${rm}|${targetBed}`;
-
-            if (occMap[targetBed] && occMap[targetBed].occupied && !isMovingFromSameBed) {
-                return alert(`Room ${rm}, Bed ${targetBed} is already occupied (${occMap[targetBed].holder || 'Assigned'})! Please select a Vacant (Green) bed or vacate that bed first.`);
+                formattedGPhone = gCheck.formatted;
             }
 
             const btn = document.getElementById('adm-confirm-btn');
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = "Uploading Documents & Saving Admission...";
+                btn.innerText = "Saving Documents & Allocating Bed...";
             }
 
             try {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
 
-                const [photoObj, aadhaarObj, matricObj, plusTwoObj, receiptObj] = await Promise.all([
+                const [photoDoc, aadhaarDoc, matricDoc, plusTwoDoc, receiptDoc] = await Promise.all([
                     fPhoto && fPhoto.files && fPhoto.files[0] ? readDocumentFileAsDataUrl(fPhoto.files[0]) : Promise.resolve(null),
                     readDocumentFileAsDataUrl(fAadhaar.files[0]),
                     readDocumentFileAsDataUrl(fMatric.files[0]),
@@ -4990,106 +5051,96 @@
                     fReceipt && fReceipt.files && fReceipt.files[0] ? readDocumentFileAsDataUrl(fReceipt.files[0]) : Promise.resolve(null)
                 ]);
 
-                if (prevBedSelVal && prevBedSelVal.includes("|") && !isMovingFromSameBed) {
-                    const [prevRm, prevBd] = prevBedSelVal.split("|");
-                    if (prevRm && ["1", "2", "3"].includes(prevBd)) {
-                        const prevMap = getBedOccupancyMap(prevRm);
-                        const prevPhone = (prevMap[prevBd] && prevMap[prevBd].admissionDetails && prevMap[prevBd].admissionDetails.phone) || "";
-                        await setSingleBedValue(prevRm, prevBd, "Vacant", {});
-                        await cleanupBedLocksAndResidents(prevRm, [prevBd], prevPhone);
-                        await rotateSingleBedKey(prevRm, prevBd, "re-admission-transfer");
-                        if (admissionDocsMap[`${prevRm}_${prevBd}`]) {
+                if (isReAdmission) {
+                    const prevSel = document.getElementById('adm-prev-bed');
+                    if (prevSel && prevSel.value) {
+                        const [prevRm, prevBd] = prevSel.value.split("|");
+                        if (prevRm && ["1", "2", "3"].includes(prevBd) && !(String(prevRm) === String(rm) && String(prevBd) === String(targetBed))) {
+                            await setSingleBedValue(prevRm, prevBd, "Vacant", {});
+                            await cleanupBedLocksAndResidents(prevRm, [prevBd], formattedPhone);
                             await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${prevRm}_${prevBd}`)).catch(() => {});
                             delete admissionDocsMap[`${prevRm}_${prevBd}`];
+                            await rotateSingleBedKey(prevRm, prevBd, "readmission-transfer-vacate");
                         }
                     }
                 }
 
-                const admissionNo = `ADM-${rm}-B${targetBed}-${String(Date.now()).slice(-4)}`;
-                const aadhaarMasked = maskAadhaarDisplay(aadhaarNum);
-                const isReAdm = mode === "readmission";
+                const admNo = `ADM-${sessionLabel.replace(/[^A-Za-z0-9]/g, '')}-${rm}-B${targetBed}-${String(Date.now()).slice(-4)}`;
+                const aadhaarMasked = maskAadhaarDisplay(aadhaarRaw);
+                const admittedAt = Date.now();
 
-                await setSingleBedValue(rm, targetBed, stuName, {
+                await setSingleBedValue(rm, targetBed, name, {
                     phone: formattedPhone,
                     collegeRoll,
                     course,
                     fatherName,
-                    guardianPhone: formattedGuardianPhone,
+                    guardianPhone: formattedGPhone,
                     bloodGroup,
                     address,
                     aadhaarMasked,
                     matricRoll,
                     plusTwoRoll,
-                    admissionNo,
+                    admissionNo: admNo,
                     session: sessionLabel,
-                    isReAdmission: isReAdm,
-                    admittedAt: Date.now()
+                    isReAdmission,
+                    admittedAt
                 });
 
                 const docKey = `${rm}_${targetBed}`;
                 const docPayload = {
                     room: String(rm),
                     bed: String(targetBed),
-                    admissionNo,
+                    admissionNo: admNo,
                     session: sessionLabel,
-                    isReAdmission: isReAdm,
-                    name: stuName,
+                    isReAdmission,
+                    name,
                     collegeRoll,
                     course,
                     phone: formattedPhone,
                     fatherName,
-                    guardianPhone: formattedGuardianPhone,
+                    guardianPhone: formattedGPhone,
                     bloodGroup,
                     address,
                     aadhaarMasked,
                     matricRoll,
                     plusTwoRoll,
-                    studentPhoto: photoObj,
-                    aadhaarFile: aadhaarObj,
-                    matricFile: matricObj,
-                    plusTwoFile: plusTwoObj,
-                    collegeReceiptFile: receiptObj,
-                    admittedBy: currentUser ? currentUser.name : "Staff",
-                    admittedAt: Date.now()
+                    studentPhoto: photoDoc,
+                    aadhaarFile: aadhaarDoc,
+                    matricFile: matricDoc,
+                    plusTwoFile: plusTwoDoc,
+                    collegeReceiptFile: receiptDoc,
+                    admittedBy: currentUser ? `${currentUser.name} (${currentUser.position || 'Staff'})` : "Staff",
+                    admittedAt
                 };
                 await window.rtdbSet(window.rtdbRef(window.db, `admission_documents/${docKey}`), docPayload);
                 admissionDocsMap[docKey] = docPayload;
-
-                await rotateSingleBedKey(rm, targetBed, isReAdm ? "re-admission-assigned" : "new-admission-assigned");
 
                 if (formattedPhone) {
                     const pk = keyOf(formattedPhone);
                     if (pk) {
                         const prevReg = registeredStudents[pk] || {};
                         await upsertSingleBedStudentRecord(pk, {
-                            name: stuName,
+                            name,
                             phone: formattedPhone,
                             room: String(rm),
                             bed: String(targetBed),
                             collegeRoll,
-                            admissionNo,
+                            admissionNo: admNo,
                             session: sessionLabel,
-                            allotted: true,
+                            admitted: true,
                             activeResident: true,
-                            lastLogin: prevReg.lastLogin || Date.now()
+                            lastLogin: prevReg.lastLogin || admittedAt
                         });
                     }
                 }
 
-                const actionWord = isReAdm ? "Re-Admission" : "Admission";
-                await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "notices")), {
-                    id: Date.now(),
-                    title: `${actionWord} Confirmed — Room ${rm}, Bed ${targetBed}`,
-                    date: new Date().toISOString().split('T')[0],
-                    content: `${stuName} (Roll: ${collegeRoll}, Session: ${sessionLabel}) has completed ${actionWord.toLowerCase()} with verified documents and is assigned Room No. ${rm}, Bed ${targetBed} (${getRoomFloorLabel(rm)}). Admission No: ${admissionNo}.`,
-                    postedBy: currentUser.name
-                });
-
-                showToast(`🎓 ${actionWord} & docs saved for ${stuName} (Room ${rm}, Bed ${targetBed})!`);
-                alert(`${actionWord} & Documents Saved!\n\nAdmission No: ${admissionNo}\nSession: ${sessionLabel}\nStudent: ${stuName}\nCollege Roll: ${collegeRoll}\nRoom: ${rm} (${getRoomFloorLabel(rm)})\nBed: ${targetBed}`);
-                renderAdmissionModule();
+                syncBedDotsAndDetailsAfterChange();
+                showAdmittedListPanel = true;
+                showToast(`🎓 ${name} (${admNo}) admitted & assigned to Room ${rm}, Bed ${targetBed}!`);
+                alert(`${isReAdmission ? "Re-Admission" : "Admission"} confirmed!\n\nAdmission No.: ${admNo}\nStudent: ${name} (Roll: ${collegeRoll})\nRoom: ${rm}, Bed: ${targetBed} (${getRoomFloorLabel(rm)})\nSession: ${sessionLabel}\nDocuments & Certificates: Saved`);
+                openModule('admission');
             } catch (e) {
-                alert("Error saving admission: " + e.message);
+                alert("Error during admission: " + e.message);
                 if (btn) {
                     btn.disabled = false;
                     btn.innerText = "✅ Confirm Admission, Save Documents & Assign Bed 🛏️";
@@ -5097,172 +5148,63 @@
             }
         }
 
-        async function vacateBed(rm, bedNum, holderName = "", holderPhone = "") {
-            if (!confirm(`Vacate Room ${rm}, Bed ${bedNum}${holderName ? ` (${holderName})` : ''}?\n\nThis will mark the bed as Vacant (Green), remove its saved admission documents, clear its active login/lock, and rotate its bed key.`)) return;
-            try {
-                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                await setSingleBedValue(rm, bedNum, "Vacant", {});
-                await cleanupBedLocksAndResidents(rm, [bedNum], holderPhone);
-                await rotateSingleBedKey(rm, bedNum, "bed-vacated");
-
-                const docKey = `${rm}_${bedNum}`;
-                if (admissionDocsMap[docKey]) {
-                    await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${docKey}`)).catch(() => {});
-                    delete admissionDocsMap[docKey];
-                }
-
-                showToast(`🚪 Room ${rm}, Bed ${bedNum} is now Vacant (Green).`);
-                if (showInspectBedPanel) {
-                    renderAdmissionModule();
-                    setTimeout(() => {
-                        const rmSel = document.getElementById('adm-inspect-room');
-                        const bdSel = document.getElementById('adm-inspect-bed');
-                        if (rmSel) rmSel.value = String(rm);
-                        if (bdSel) bdSel.value = String(bedNum);
-                        onInspectRoomBedChange();
-                    }, 30);
-                } else {
-                    renderAdmissionModule();
-                }
-            } catch (e) {
-                alert("Error vacating bed: " + e.message);
-            }
-        }
-
-        async function prepareNewAcademicSession() {
-            const nextSession = prompt("Enter New Academic Session label (e.g. 2027-28):", "");
-            if (nextSession === null) return;
-            const sessLabel = nextSession.trim() || getDefaultSessionLabel();
-            if (!confirm(`Start New Session "${sessLabel}" and vacate ALL beds across all rooms?\n\nAll beds will become Vacant (Green), student logins/locks will be cleared, saved admission documents will be archived/cleared, and bed keys will be rotated for the new session.`)) return;
-
-            try {
-                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-
-                for (const ra of roomAllocations) {
-                    await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${ra.firebaseId}`), {
-                        session: sessLabel,
-                        student1: "Vacant",
-                        student2: "Vacant",
-                        student3: "Vacant",
-                        students: [],
-                        status: "Occupied (0/3)",
-                        updatedAt: Date.now()
-                    });
-                    for (const b of ["1", "2", "3"]) {
-                        await rotateSingleBedKey(ra.room, b, "new-academic-session");
-                        const dk = `${ra.room}_${b}`;
-                        if (admissionDocsMap[dk]) {
-                            await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${dk}`)).catch(() => {});
-                        }
-                    }
-                }
-                admissionDocsMap = {};
-
-                for (const rk of Object.keys(registeredStudents || {})) {
-                    const st = registeredStudents[rk] || {};
-                    const pk = keyOf(st.phone || rk) || rk;
-                    if (!isProtectedVipPhone(pk)) {
-                        await window.rtdbRemove(window.rtdbRef(window.db, `registered_students/${rk}`)).catch(() => {});
-                        await window.rtdbRemove(window.rtdbRef(window.db, `login_locks/${pk}`)).catch(() => {});
-                        await window.rtdbRemove(window.rtdbRef(window.db, `presence/${pk}`)).catch(() => {});
-                    }
-                }
-
-                showToast(`🗓️ New session ${sessLabel} initialized. All beds are Vacant (Green).`);
-                renderAdmissionModule();
-            } catch (e) {
-                alert("Error starting new session: " + e.message);
-            }
-        }
-
-        async function handleDeleteBoxAction() {
-            const sel = document.getElementById('delete-box-select');
-            const val = sel ? sel.value : "";
-            if (!val) return alert("Please select an Admission record or a logged-in student from the Delete Box dropdown.");
-
-            if (val.startsWith("stu:")) {
-                const pk = val.slice(4);
-                await removeStudentRecordCompletely(pk);
-                return;
-            }
-
-            const id = val.startsWith("alloc:") ? val.slice(6) : val;
-            await deleteAllocation(id);
-        }
-
-        async function editAllocationById(id) {
+        function editAllocationById(id) {
             const ra = roomAllocations.find(x => x.firebaseId === id);
             if (!ra) return;
-            const b1 = prompt("Edit Bed 1 Student (or Vacant):", ra.student1 || "Vacant");
-            if (b1 === null) return;
-            const b2 = prompt("Edit Bed 2 Student (or Vacant):", ra.student2 || "Vacant");
-            if (b2 === null) return;
-            const b3 = prompt("Edit Bed 3 Student (or Vacant):", ra.student3 || "Vacant");
-            if (b3 !== null) {
-                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                const s1 = b1.trim() || "Vacant";
-                const s2 = b2.trim() || "Vacant";
-                const s3 = b3.trim() || "Vacant";
-                const occupiedCount = [s1, s2, s3].filter(x => x && x !== "Vacant").length;
-
-                const prevDetails = Array.isArray(ra.students) ? ra.students : [];
-                const nextDetails = [
-                    { bed: "1", name: s1 },
-                    { bed: "2", name: s2 },
-                    { bed: "3", name: s3 }
-                ].filter(x => x.name && x.name !== "Vacant").map(x => {
-                    const exDet = prevDetails.find(d => String(d.bed) === x.bed) || {};
-                    return Object.assign({}, exDet, { bed: x.bed, name: x.name });
-                });
-
-                await window.rtdbUpdate(window.rtdbRef(window.db, `allocations/${id}`), {
-                    student1: s1,
-                    student2: s2,
-                    student3: s3,
-                    students: nextDetails,
-                    status: occupiedCount >= 3 ? "Fully Occupied (3/3)" : `Occupied (${occupiedCount}/3)`,
-                    updatedAt: Date.now()
-                });
-
-                for (const [bNum, bVal] of [["1", s1], ["2", s2], ["3", s3]]) {
-                    if (bVal === "Vacant") {
-                        const det = prevDetails.find(d => String(d.bed) === bNum) || {};
-                        await cleanupBedLocksAndResidents(ra.room, [bNum], det.phone || "");
-                        await rotateSingleBedKey(ra.room, bNum, "bed-edited-vacant");
-                        const dk = `${ra.room}_${bNum}`;
-                        if (admissionDocsMap[dk]) {
-                            await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${dk}`)).catch(() => {});
-                            delete admissionDocsMap[dk];
-                        }
-                    }
-                }
+            const n = parseInt(ra.room, 10);
+            const fl = document.getElementById('alloc-floor');
+            if (fl) {
+                fl.value = n >= 101 && n <= 135 ? "ground" : n >= 201 && n <= 235 ? "first" : "second";
+                updateRooms('alloc-floor', 'alloc-room', ra.room);
             }
+            const rmSel = document.getElementById('alloc-room');
+            if (rmSel) rmSel.value = String(ra.room);
+
+            const bedSel = document.getElementById('alloc-bed-select');
+            const targetBed = (bedSel && bedSel.value) || selectedAllotBed || "1";
+            selectedAllotBed = targetBed;
+            if (bedSel) bedSel.value = targetBed;
+
+            const nameEl = document.getElementById('alloc-stu-name');
+            if (nameEl) {
+                delete nameEl.dataset.manualEdit;
+                const val = targetBed === "1" ? ra.student1 : targetBed === "2" ? ra.student2 : ra.student3;
+                nameEl.value = (val && val !== "Vacant") ? val : "";
+            }
+            onAllotBedSelect();
         }
 
         async function deleteAllocation(id) {
+            if (!id) return;
             const ra = roomAllocations.find(x => x.firebaseId === id);
-            const roomLabel = ra ? `Room ${ra.room}` : "this room allocation";
-            if (!confirm(`Delete ${roomLabel}?\n\nThis will mark the room's beds as Vacant (Green), log out any student in that room, unlock their phone number, remove saved room documents, and rotate its bed keys.`)) return;
+            const label = ra ? `Room ${ra.room}` : "this room allocation";
+            if (!confirm(`Delete ${label}?\n\nThis will vacate Beds 1, 2 & 3 (set them Green), immediately log out any student in that room, and unlock their phone numbers.`)) return;
 
-            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-            await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${id}`));
+            try {
+                if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+                const rm = ra ? String(ra.room) : "";
+                const studentPhones = [];
+                if (ra && Array.isArray(ra.students)) {
+                    ra.students.forEach(s => { if (s && s.phone) studentPhones.push(s.phone); });
+                }
 
-            if (ra && ra.room) {
-                const phonesFromAlloc = Array.isArray(ra.students)
-                    ? ra.students.map(d => d && d.phone).filter(Boolean).join(",")
-                    : "";
-                await cleanupBedLocksAndResidents(ra.room, ["1", "2", "3"], phonesFromAlloc);
-                for (const b of ["1", "2", "3"]) {
-                    await rotateSingleBedKey(ra.room, b, "allocation-deleted");
-                    const dk = `${ra.room}_${b}`;
-                    if (admissionDocsMap[dk]) {
-                        await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${dk}`)).catch(() => {});
-                        delete admissionDocsMap[dk];
+                await window.rtdbRemove(window.rtdbRef(window.db, `allocations/${id}`));
+                roomAllocations = roomAllocations.filter(x => x.firebaseId !== id);
+
+                if (rm) {
+                    await cleanupBedLocksAndResidents(rm, ["1", "2", "3"], studentPhones[0] || "");
+                    for (const b of ["1", "2", "3"]) {
+                        await window.rtdbRemove(window.rtdbRef(window.db, `admission_documents/${rm}_${b}`)).catch(() => {});
+                        delete admissionDocsMap[`${rm}_${b}`];
+                        await rotateSingleBedKey(rm, b, "allocation-deleted");
                     }
                 }
+                syncBedDotsAndDetailsAfterChange();
+                showToast(`🗑️ ${label} deleted & beds freed.`);
+                if (document.getElementById('alloc-room')) renderRoomAllocation();
+            } catch (e) {
+                alert("Error deleting allocation: " + e.message);
             }
-            syncBedDotsAndDetailsAfterChange();
-            showToast(`🗑️ ${roomLabel} deleted & beds set Vacant (Green).`);
         }
 
         function renderStaffDirectory() {
@@ -5270,40 +5212,50 @@
             const st = currentUser.role === 'staff';
             let h = `<h2>👥 Hostel Staff Directory</h2><hr style="margin:10px 0">`;
             if (st) {
-                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Add Staff Contact</h4><select id="st-role" style="width:100%;margin:8px 0;padding:8px"><option>Chief Warden</option><option>Hostel Incharge</option><option>Hostel Supervisor</option><option>Hostel Administrative</option><option>Kitchen Mess Cook</option></select><input type="text" id="st-name" placeholder="Staff Full Name" style="width:100%;margin:8px 0;padding:8px"><div class="phone-input-wrap" style="margin-bottom:8px"><span class="phone-prefix">+91</span><input type="tel" id="st-phone" maxlength="14" inputmode="numeric" placeholder="10-digit mobile number" oninput="sanitizeIndianPhoneInput(this)"></div><button class="btn" onclick="addStaffMember()">Add Contact</button></div>`;
+                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Add Staff Member</h4><input type="text" id="stf-name" placeholder="Staff Full Name" style="width:100%;margin:8px 0;padding:8px"><select id="stf-role" style="width:100%;margin-bottom:8px;padding:8px"><option>Chief Warden</option><option>Hostel Incharge</option><option>Hostel Supervisor</option><option>Hostel Administrative</option><option>Kitchen Mess Cook</option></select><div class="phone-input-wrap" style="margin-bottom:8px"><span class="phone-prefix">+91</span><input type="tel" id="stf-phone" maxlength="14" inputmode="numeric" placeholder="10-digit Indian mobile number" oninput="sanitizeIndianPhoneInput(this)"></div><button class="btn" onclick="addStaffMember()">Add Staff</button></div>`;
             }
-            staffMembers.forEach(s => {
-                const pCheck = parseAndValidateIndianPhone(s.phone);
-                const pHref = pCheck.ok ? pCheck.formatted : String(s.phone || '').replace(/[^0-9+]/g, '');
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${escapeAttr(s.name)}</strong><br><small style="color:#6b7280">${escapeAttr(s.role)} • ${escapeAttr(formatPhoneDisplay(s.phone))}</small></div><div style="display:flex;gap:8px;align-items:center"><a href="tel:${escapeAttr(pHref)}" class="call-btn">📞 Call</a>${st ? `<button onclick="deleteStaffMember('${escapeAttr(s.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px">🗑️</button>` : ''}</div></div></div>`;
+            if (!staffMembers.length) h += `<p style="color:#6b7280;font-size:13px">No staff members found.</p>`;
+            staffMembers.forEach(m => {
+                const rawP = String(m.phone || '').trim();
+                const hasDigits = extractIndian10Digit(rawP).length === 10;
+                const hrefTel = hasDigits ? `tel:+91${extractIndian10Digit(rawP)}` : `tel:${rawP}`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><div><h4>${escapeAttr(m.name)}</h4><small style="color:var(--primary);font-weight:bold">${escapeAttr(m.role)}</small><br><small style="color:#6b7280">📞 ${escapeAttr(formatPhoneDisplay(rawP))}</small></div><div style="display:flex;gap:8px;align-items:center"><a href="${escapeAttr(hrefTel)}" class="call-btn">📞 Call</a>${st ? `<button onclick="editStaffById('${escapeAttr(m.firebaseId)}')" style="background:#3b82f6;color:#fff;border:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px">✏️</button><button onclick="deleteStaff('${escapeAttr(m.firebaseId)}')" style="background:#ef4444;color:#fff;border:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px">🗑️</button>` : ''}</div></div></div>`;
             });
             content.innerHTML = h;
         }
 
         async function addStaffMember() {
-            const r = document.getElementById('st-role').value;
-            const n = document.getElementById('st-name').value.trim();
-            const rawP = document.getElementById('st-phone').value.trim();
-            if (!n || !rawP) return alert("Please enter name and phone number.");
+            const n = document.getElementById('stf-name').value.trim();
+            const r = document.getElementById('stf-role').value;
+            const rawP = document.getElementById('stf-phone').value.trim();
+            if (!n || !rawP) return alert("Please enter name and mobile number.");
             const pCheck = parseAndValidateIndianPhone(rawP);
             if (!pCheck.ok) return alert(pCheck.message);
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-            await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "staff")), {
-                role: r,
-                name: n,
-                phone: pCheck.formatted,
-                id: Date.now()
-            });
+            await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "staff")), { name: n, role: r, phone: pCheck.formatted });
         }
 
-        async function deleteStaffMember(id) {
-            if (confirm("Delete this staff contact?")) {
+        async function editStaffById(id) {
+            const m = staffMembers.find(x => x.firebaseId === id);
+            if (!m) return;
+            const n = prompt("Edit Staff Name:", m.name);
+            if (n === null) return;
+            const rawP = prompt("Edit 10-digit Mobile Number:", extractIndian10Digit(m.phone));
+            if (rawP === null) return;
+            const pCheck = parseAndValidateIndianPhone(rawP);
+            if (!pCheck.ok) return alert(pCheck.message);
+            if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+            await window.rtdbUpdate(window.rtdbRef(window.db, `staff/${id}`), { name: n.trim() || m.name, phone: pCheck.formatted });
+        }
+
+        async function deleteStaff(id) {
+            if (confirm("Are you sure you want to remove this staff member?")) {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `staff/${id}`));
             }
         }
 
-        function getFeeRecordKey(room, bed = "") {
+        function getFeeRecordKey(room, bed) {
             const rm = String(room || "").trim();
             const bd = String(bed || "").trim();
             return bd ? `${rm}_B${bd}` : rm;
@@ -5315,102 +5267,118 @@
             let h = `<h2>💰 Fee & Payments</h2><hr style="margin:10px 0">`;
 
             if (st) {
-                const ed = editingFeeKey ? (feeRecords[editingFeeKey] || null) : null;
-                const edRoom = ed ? String(ed.room || editingFeeKey.split("_")[0] || "") : "";
-                const edBed = ed ? String(ed.bed || (editingFeeKey.includes("_B") ? editingFeeKey.split("_B")[1] : "")) : "";
+                const ef = editingFeeKey ? feeRecords[editingFeeKey] : null;
+                h += `
+                <div style="background:#e0e7ff;padding:15px;border-radius:10px;margin-bottom:15px">
+                    <h4>${editingFeeKey ? `Edit Fee Record (${escapeAttr(editingFeeKey)})` : 'Update Student Fee Details (Room + Bed)'}</h4>
+                    <select id="fee-floor" onchange="updateRooms('fee-floor','fee-room')" style="width:100%;margin:8px 0;padding:8px">
+                        <option value="">-- Choose Floor --</option>
+                        <option value="ground">Ground Floor (101 - 135)</option>
+                        <option value="first">First Floor (201 - 235)</option>
+                        <option value="second">Second Floor (301 - 335)</option>
+                    </select>
+                    <select id="fee-room" style="width:100%;margin-bottom:8px;padding:8px">
+                        <option value="">-- Choose Room --</option>
+                    </select>
+                    <select id="fee-bed" style="width:100%;margin-bottom:8px;padding:8px">
+                        <option value="">-- Choose Bed (Optional) --</option>
+                        <option value="1" ${ef && String(ef.bed) === '1' ? 'selected' : ''}>🛏️ Bed 1</option>
+                        <option value="2" ${ef && String(ef.bed) === '2' ? 'selected' : ''}>🛏️ Bed 2</option>
+                        <option value="3" ${ef && String(ef.bed) === '3' ? 'selected' : ''}>🛏️ Bed 3</option>
+                    </select>
+                    <input type="text" id="fee-stu-name" value="${ef ? escapeAttr(ef.studentName) : ''}" placeholder="Student Name" style="width:100%;margin-bottom:8px;padding:8px">
+                    <input type="text" id="fee-annual" value="${ef ? escapeAttr(ef.annualFee) : ''}" placeholder="Annual Hostel Fee (e.g. ₹12,000)" style="width:100%;margin-bottom:8px;padding:8px">
+                    <input type="text" id="fee-mess" value="${ef ? escapeAttr(ef.messDues) : ''}" placeholder="Mess Dues (e.g. ₹2,500 or ₹0)" style="width:100%;margin-bottom:8px;padding:8px">
+                    <select id="fee-status" style="width:100%;margin-bottom:10px;padding:8px">
+                        <option ${ef && ef.status === 'Paid' ? 'selected' : ''}>Paid</option>
+                        <option ${ef && ef.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                    </select>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn" onclick="saveFeeRecord()">${editingFeeKey ? 'Update Fee Record' : 'Save Fee Record'}</button>
+                        ${editingFeeKey ? `<button class="btn" style="background:#6b7280" onclick="editingFeeKey=null;renderFeePayments()">Cancel</button>` : ''}
+                    </div>
+                </div>`;
 
-                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>${ed ? `Update Fee (Room ${escapeAttr(edRoom)}${edBed ? `, Bed ${escapeAttr(edBed)}` : ''})` : 'Update Student Fee Record'}</h4>
-                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Floor:</label>
-                    <select id="fee-floor" onchange="updateRooms('fee-floor','fee-room')" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Floor --</option><option value="ground">Ground Floor (101 - 135)</option><option value="first">First Floor (201 - 235)</option><option value="second">Second Floor (301 - 335)</option></select>
-                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Room Number:</label>
-                    <select id="fee-room" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Choose Room --</option></select>
-                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Bed Number (Optional - Per Student):</label>
-                    <select id="fee-bed" style="width:100%;margin:4px 0;padding:8px"><option value="">-- Whole Room / Not Specified --</option><option value="1" ${edBed === '1' ? 'selected' : ''}>Bed 1</option><option value="2" ${edBed === '2' ? 'selected' : ''}>Bed 2</option><option value="3" ${edBed === '3' ? 'selected' : ''}>Bed 3</option></select>
-                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Annual Hostel Fee:</label>
-                    <input type="text" id="fee-annual" value="${ed ? escapeAttr(ed.annualFee) : ''}" placeholder="e.g. ₹12,000" style="width:100%;margin:4px 0;padding:8px">
-                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Mess Dues:</label>
-                    <input type="text" id="fee-mess" value="${ed ? escapeAttr(ed.messDues) : ''}" placeholder="e.g. ₹2,500" style="width:100%;margin:4px 0;padding:8px">
-                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:6px">Payment Status:</label>
-                    <select id="fee-status" style="width:100%;margin:4px 0;padding:8px"><option ${ed && ed.status === 'Pending' ? 'selected' : ''}>Pending</option><option ${ed && ed.status === 'Paid' ? 'selected' : ''}>Paid</option></select>
-                    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" onclick="saveFeeRecord()">${ed ? 'Update Fee Record' : 'Save Fee Record'}</button>${ed ? `<button onclick="cancelFeeEdit()" style="background:#6b7280;color:#fff;border:none;padding:12px 16px;border-radius:8px;font-weight:600;cursor:pointer">Cancel</button>` : ''}</div></div>`;
-            }
-
-            const keys = currentUser.role === 'student'
-                ? Object.keys(feeRecords).filter(rk => {
-                    const rec = feeRecords[rk] || {};
-                    const sameRoom = String(rec.room || rk.split("_")[0]) === String(currentUser.room);
-                    if (!sameRoom) return false;
-                    if (rec.bed && currentUser.bed) return String(rec.bed) === String(currentUser.bed);
-                    return true;
-                })
-                : Object.keys(feeRecords);
-
-            if (!keys.length) h += `<p style="color:#6b7280;font-size:13px">No fee records available.</p>`;
-            keys.forEach(rk => {
-                const f = feeRecords[rk] || {};
-                const rmDisp = f.room || rk.split("_")[0] || rk;
-                const bdDisp = f.bed || (rk.includes("_B") ? rk.split("_B")[1] : "");
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(rmDisp)}${bdDisp ? ` • Bed ${escapeAttr(bdDisp)}` : ''}</strong><span class="badge ${f.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(f.status)}</span></div><p style="margin-top:6px">Annual Hostel Fee: <strong>${escapeAttr(f.annualFee)}</strong> | Mess Dues: <strong>${escapeAttr(f.messDues)}</strong></p>${st ? `<div style="display:flex;gap:8px;margin-top:8px"><button onclick="startFeeEdit('${escapeAttr(rk)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button><button onclick="deleteFeeRecord('${escapeAttr(rk)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px">🗑️ Delete</button></div>` : ''}</div>`;
-            });
-            content.innerHTML = h;
-
-            if (st && editingFeeKey && feeRecords[editingFeeKey]) {
-                const ed = feeRecords[editingFeeKey];
-                const rmVal = String(ed.room || editingFeeKey.split("_")[0] || "");
-                const flVal = getRoomFloorValue(rmVal);
-                if (flVal) {
-                    document.getElementById('fee-floor').value = flVal;
-                    updateRooms('fee-floor', 'fee-room', rmVal);
+                h += `<h4>Student Fee Records</h4><div style="margin-top:10px">`;
+                const keys = Object.keys(feeRecords);
+                if (!keys.length) h += `<p style="color:#6b7280;font-size:13px">No fee records added yet.</p>`;
+                keys.forEach(k => {
+                    const r = feeRecords[k];
+                    const bedTxt = r.bed ? ` • Bed ${escapeAttr(r.bed)}` : '';
+                    h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><strong>Room ${escapeAttr(r.room)}${bedTxt} - ${escapeAttr(r.studentName)}</strong><br><small style="color:#6b7280">Annual Fee: ${escapeAttr(r.annualFee)} • Mess Dues: ${escapeAttr(r.messDues)}</small></div><div style="display:flex;align-items:center;gap:6px"><span class="badge ${r.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(r.status)}</span><button onclick="startEditFee('${escapeAttr(k)}')" style="background:#3b82f6;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">✏️</button><button onclick="deleteFeeRecord('${escapeAttr(k)}')" style="background:#ef4444;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px">🗑️</button></div></div></div>`;
+                });
+                content.innerHTML = h + `</div>`;
+            } else {
+                const exactKey = getFeeRecordKey(currentUser.room, currentUser.bed);
+                const r = feeRecords[exactKey] || feeRecords[currentUser.room];
+                const bedLabel = currentUser.bed ? ` | Bed ${currentUser.bed}` : '';
+                if (!r) {
+                    h += `<div class="item-card"><p>No fee record found for Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)}. Please contact Hostel Administrative.</p></div>`;
+                } else {
+                    h += `<div class="item-card"><h4>Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)} - ${escapeAttr(r.studentName)}</h4><p style="margin-top:8px"><strong>Annual Hostel Fee:</strong> ${escapeAttr(r.annualFee)}</p><p style="margin-top:4px"><strong>Mess Dues:</strong> ${escapeAttr(r.messDues)}</p><p style="margin-top:8px"><strong>Payment Status:</strong> <span class="badge ${r.status === 'Paid' ? 'badge-paid' : 'badge-pending'}">${escapeAttr(r.status)}</span></p></div>`;
                 }
+                content.innerHTML = h;
             }
         }
 
-        function getRoomFloorValue(rm) {
-            const n = parseInt(rm, 10);
-            if (n >= 101 && n <= 135) return "ground";
-            if (n >= 201 && n <= 235) return "first";
-            if (n >= 301 && n <= 335) return "second";
-            return "";
-        }
-
-        function startFeeEdit(rk) {
-            editingFeeKey = rk;
+        function startEditFee(k) {
+            editingFeeKey = k;
             renderFeePayments();
-        }
-
-        function cancelFeeEdit() {
-            editingFeeKey = null;
-            renderFeePayments();
+            const r = feeRecords[k];
+            if (!r) return;
+            const n = parseInt(r.room, 10);
+            const fl = document.getElementById('fee-floor');
+            if (fl) {
+                fl.value = n >= 101 && n <= 135 ? "ground" : n >= 201 && n <= 235 ? "first" : "second";
+                updateRooms('fee-floor', 'fee-room', r.room);
+            }
+            const bd = document.getElementById('fee-bed');
+            if (bd && r.bed) bd.value = String(r.bed);
         }
 
         async function saveFeeRecord() {
             const rm = document.getElementById('fee-room').value;
-            const bd = document.getElementById('fee-bed') ? document.getElementById('fee-bed').value : "";
+            const bd = document.getElementById('fee-bed') ? document.getElementById('fee-bed').value : '';
+            const n = document.getElementById('fee-stu-name').value.trim();
             const a = document.getElementById('fee-annual').value.trim();
             const m = document.getElementById('fee-mess').value.trim();
             const s = document.getElementById('fee-status').value;
-            if (!rm || !a || !m) return alert("Please select room and enter fee details.");
+            if (!rm || !n || !a || !m) return alert("Please fill room, student name, annual fee, and mess dues.");
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
+
             const targetKey = editingFeeKey || getFeeRecordKey(rm, bd);
             await window.rtdbSet(window.rtdbRef(window.db, `fees/${targetKey}`), {
                 room: String(rm),
-                bed: String(bd || ""),
+                bed: String(bd || ''),
+                studentName: n,
                 annualFee: a,
                 messDues: m,
                 status: s,
                 updatedAt: Date.now()
             });
+
+            if (!editingFeeKey && bd && feeRecords[String(rm)]) {
+                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${String(rm)}`)).catch(() => {});
+            }
+
             editingFeeKey = null;
             alert("Fee record saved!");
-            renderFeePayments();
         }
 
-        async function deleteFeeRecord(rk) {
-            if (confirm(`Delete fee record for ${rk}?`)) {
+        async function deleteFeeRecord(k) {
+            if (confirm("Delete this fee record?")) {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${rk}`));
-                if (editingFeeKey === rk) editingFeeKey = null;
-                renderFeePayments();
+                await window.rtdbRemove(window.rtdbRef(window.db, `fees/${k}`));
+            }
+        }
+
+        function handlePresetReasonChange() {
+            const presetEl = document.getElementById('op-preset-reason');
+            const detailEl = document.getElementById('op-reason');
+            if (!presetEl || !detailEl) return;
+            const chosen = presetEl.value;
+            if (chosen && chosen !== "Other / Custom") {
+                detailEl.value = chosen;
             }
         }
 
@@ -5419,26 +5387,44 @@
             let h = `<h2>📝 Out-Pass / Leave Application</h2><hr style="margin:10px 0">`;
             if (currentUser.role === 'student') {
                 const bedLabel = currentUser.bed ? `, Bed ${currentUser.bed}` : '';
-                h += `<div style="background:#e0e7ff;padding:15px;border-radius:8px;margin-bottom:15px"><h4>Apply for Leave (Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)})</h4><input type="date" id="op-from" style="width:100%;margin:8px 0;padding:8px"><input type="date" id="op-to" style="width:100%;margin:8px 0;padding:8px"><textarea id="op-reason" placeholder="Reason for leave..." style="width:100%;margin-bottom:8px;padding:8px"></textarea><button class="btn" onclick="submitOutPass()">Submit Application</button></div>`;
+                h += `
+                <div style="background:#fef3c7;padding:15px;border-radius:10px;margin-bottom:15px">
+                    <h4>Apply for Leave Pass (Room ${escapeAttr(currentUser.room)}${escapeAttr(bedLabel)})</h4>
+                    <label style="font-size:12px;font-weight:bold;display:block;margin-top:8px">Select Preset Reason:</label>
+                    <select id="op-preset-reason" onchange="handlePresetReasonChange()" style="width:100%;margin:4px 0 8px 0;padding:8px">
+                        <option value="">-- Select or Type Below --</option>
+                        <option value="Home Visit (Going to hometown)">Home Visit (Going to hometown)</option>
+                        <option value="Emergency / Medical Reason">Emergency / Medical Reason</option>
+                        <option value="Local Outing (Shopping / Work)">Local Outing (Shopping / Work)</option>
+                        <option value="Personal Work">Personal Work</option>
+                        <option value="Other / Custom">Other / Custom</option>
+                    </select>
+                    <label style="font-size:12px;font-weight:bold;display:block">Reason Details (Editable):</label>
+                    <textarea id="op-reason" placeholder="Write or edit reason for leave..." style="width:100%;margin:4px 0 8px 0;padding:8px"></textarea>
+                    <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+                        <div style="flex:1;min-width:140px"><label style="font-size:12px;font-weight:bold">From Date:</label><input type="date" id="op-from" style="width:100%;padding:6px;margin-top:4px"></div>
+                        <div style="flex:1;min-width:140px"><label style="font-size:12px;font-weight:bold">To Date:</label><input type="date" id="op-to" style="width:100%;padding:6px;margin-top:4px"></div>
+                    </div>
+                    <button class="btn" onclick="submitOutPass()">Submit Leave Application</button>
+                </div>`;
             }
 
+            h += `<h4>Submitted Applications</h4><div style="margin-top:10px">`;
             const list = currentUser.role === 'student' ? outPasses.filter(isMine) : outPasses;
-            if (!list.length) h += `<p style="color:#6b7280;font-size:13px">No leave applications found.</p>`;
+            if (!list.length) h += `<p style="color:#6b7280;font-size:13px">No leave requests found.</p>`;
             list.forEach(o => {
-                const st = currentUser.role === 'student';
-                if (st) markSeen('op_' + o.firebaseId, o.status);
-                const bc = o.status === 'Approved' ? 'badge-resolved' : (o.status === 'Rejected' ? 'badge-rejected' : 'badge-pending');
                 const bedTag = o.bed ? `, Bed ${o.bed}` : '';
-                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(o.room)}${escapeAttr(bedTag)} - ${escapeAttr(o.name)}</strong><span class="badge ${bc}">${escapeAttr(o.status)}</span></div><p style="margin-top:6px">From: <strong>${escapeAttr(o.from)}</strong> To: <strong>${escapeAttr(o.to)}</strong></p><p style="margin-top:4px;color:#374151">${escapeAttr(o.reason)}</p>${!st ? `<div style="display:flex;gap:10px;margin-top:10px"><button class="btn" style="padding:6px;background:#10b981" onclick="updateOutPass('${escapeAttr(o.firebaseId)}','Approved')">Approve</button><button class="btn" style="padding:6px;background:#ef4444" onclick="updateOutPass('${escapeAttr(o.firebaseId)}','Rejected')">Reject</button></div>` : ''}</div>`;
+                h += `<div class="item-card"><div style="display:flex;justify-content:space-between;align-items:center"><strong>Room ${escapeAttr(o.room)}${escapeAttr(bedTag)} - ${escapeAttr(o.name)}</strong><span class="badge ${o.status === 'Approved' ? 'badge-resolved' : o.status === 'Rejected' ? 'badge-rejected' : 'badge-pending'}">${escapeAttr(o.status)}</span></div><p style="margin:6px 0"><strong>Reason:</strong> ${escapeAttr(o.reason)}</p><small style="color:#6b7280">From: ${escapeAttr(o.fromDate)} &rarr; To: ${escapeAttr(o.toDate)}</small>${currentUser.role === 'staff' && o.status === 'Pending' ? `<div style="margin-top:10px;display:flex;gap:8px"><button onclick="updateOutPassStatus('${escapeAttr(o.firebaseId)}','Approved')" style="background:#10b981;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold">Approve</button><button onclick="updateOutPassStatus('${escapeAttr(o.firebaseId)}','Rejected')" style="background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:bold">Reject</button></div>` : ''}</div>`;
             });
-            content.innerHTML = h;
+            content.innerHTML = h + `</div>`;
         }
 
         async function submitOutPass() {
+            const preset = document.getElementById('op-preset-reason') ? document.getElementById('op-preset-reason').value.trim() : '';
+            const r = document.getElementById('op-reason').value.trim() || preset;
             const f = document.getElementById('op-from').value;
             const t = document.getElementById('op-to').value;
-            const r = document.getElementById('op-reason').value.trim();
-            if (!f || !t || !r) return alert("Please fill dates and reason.");
+            if (!r || !f || !t) return alert("Please enter reason and from/to dates.");
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             const ref = window.rtdbPush(window.rtdbRef(window.db, "outpasses"));
             markSeen('op_' + ref.key, 'Pending');
@@ -5447,41 +5433,37 @@
                 bed: String(currentUser.bed || ''),
                 name: currentUser.name,
                 studentKey: keyOf(currentUser.phone),
-                from: f,
-                to: t,
                 reason: r,
+                fromDate: f,
+                toDate: t,
                 status: "Pending",
                 createdAt: Date.now()
             });
             playNotificationSound();
-            alert("Out-pass request submitted!");
+            alert("Out-Pass / Leave application submitted!");
             renderOutPass();
         }
 
-        async function updateOutPass(id, status) {
+        async function updateOutPassStatus(id, st) {
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
-            await window.rtdbUpdate(window.rtdbRef(window.db, `outpasses/${id}`), {
-                status,
-                approvedBy: currentUser.name,
-                updatedAt: Date.now()
-            });
-            showToast(`Leave request marked as ${status}.`);
+            await window.rtdbUpdate(window.rtdbRef(window.db, `outpasses/${id}`), { status: st, reviewedBy: currentUser.name });
+            showToast(`Leave request ${st}.`);
         }
 
         async function addNotice() {
             const t = document.getElementById('nt-title').value.trim();
             const b = document.getElementById('nt-body').value.trim();
-            if (!t || !b) return alert("Please fill title and description.");
+            if (!t || !b) return alert("Please enter title and notice details.");
             if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
             await window.rtdbSet(window.rtdbPush(window.rtdbRef(window.db, "notices")), {
+                id: Date.now(),
                 title: t,
-                content: b,
                 date: new Date().toISOString().split('T')[0],
-                postedBy: currentUser.name,
-                id: Date.now()
+                content: b,
+                postedBy: currentUser.name
             });
             playNotificationSound();
-            alert("Notice posted!");
+            alert("Notice posted successfully!");
             openModule('notice');
         }
 
@@ -5489,7 +5471,6 @@
             if (confirm("Delete this notice?")) {
                 if (typeof window.ensureFirebaseAuth === "function") await window.ensureFirebaseAuth();
                 await window.rtdbRemove(window.rtdbRef(window.db, `notices/${id}`));
-                openModule('notice');
             }
         }
     </script>
